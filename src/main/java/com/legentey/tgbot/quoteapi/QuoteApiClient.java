@@ -37,6 +37,7 @@ public class QuoteApiClient {
         ObjectNode message = mapper.createObjectNode();
         message.set("from", from);
         message.put("text", text == null ? "" : text);
+        message.put("avatar", true);
         if (entities != null && entities.isArray() && !entities.isEmpty()) {
             message.set("entities", entities);
         }

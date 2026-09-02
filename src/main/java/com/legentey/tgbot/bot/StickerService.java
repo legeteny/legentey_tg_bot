@@ -63,7 +63,12 @@ public class StickerService {
         addToPack(chatId, requesterUserId, png, emoji);
     }
 
-    /** Best-effort: attaches the user's current profile photo as a big_file_id, if any. */
+    /**
+     * Best-effort: attaches the user's Premium emoji status, if any. quote-api
+     * fetches the avatar itself (via its own getChat call) once "avatar": true
+     * is set, so we don't need to pre-fetch a photo — but emoji_status isn't
+     * part of a plain message's "from" and has to come from getChat here.
+     */
     private JsonNode buildFromNode(JsonNode telegramFrom) {
         if (!telegramFrom.isObject()) {
             return telegramFrom;
@@ -71,14 +76,12 @@ public class StickerService {
         ObjectNode node = ((ObjectNode) telegramFrom).deepCopy();
         long userId = telegramFrom.path("id").asLong();
         try {
-            JsonNode photos = client.getUserProfilePhotos(userId).path("photos");
-            if (photos.isArray() && !photos.isEmpty() && photos.get(0).isArray() && !photos.get(0).isEmpty()) {
-                JsonNode sizes = photos.get(0);
-                String bigFileId = sizes.get(sizes.size() - 1).path("file_id").asText();
-                node.putObject("photo").put("big_file_id", bigFileId);
+            String emojiStatusId = client.getChat(userId).path("emoji_status_custom_emoji_id").asText(null);
+            if (emojiStatusId != null && !emojiStatusId.isBlank()) {
+                node.put("emoji_status", emojiStatusId);
             }
         } catch (TelegramApiException e) {
-            log.debug("Could not fetch profile photo for user {}: {}", userId, e.getMessage());
+            log.debug("Could not fetch chat info for user {}: {}", userId, e.getMessage());
         }
         return node;
     }

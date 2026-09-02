@@ -71,10 +71,9 @@ public class TelegramApiClient {
         call("setMyCommands", Map.of("commands", commands), Duration.ofSeconds(15));
     }
 
-    /** Returns userId's profile photos, most recent first. */
-    public JsonNode getUserProfilePhotos(long userId) {
-        Map<String, Object> params = Map.of("user_id", userId, "limit", 1);
-        return call("getUserProfilePhotos", params, Duration.ofSeconds(15));
+    /** Full chat/user info — used for fields not present on a plain message's "from" (e.g. emoji_status). */
+    public JsonNode getChat(long chatId) {
+        return call("getChat", Map.of("chat_id", chatId), Duration.ofSeconds(15));
     }
 
     /** Creates a brand new static sticker set owned by userId, seeded with one PNG sticker. */
