@@ -1,10 +1,10 @@
-package my.interview.tgbot.bot;
+package com.legentey.tgbot.bot;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import my.interview.tgbot.storage.StickerPack;
-import my.interview.tgbot.storage.StickerPackStore;
-import my.interview.tgbot.telegram.TelegramApiClient;
-import my.interview.tgbot.telegram.TelegramApiException;
+import com.legentey.tgbot.storage.StickerPack;
+import com.legentey.tgbot.storage.StickerPackStore;
+import com.legentey.tgbot.telegram.TelegramApiClient;
+import com.legentey.tgbot.telegram.TelegramApiException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

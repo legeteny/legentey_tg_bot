@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>my.interview</groupId>
+    <groupId>com.legentey</groupId>
     <artifactId>legentey_tg_bot</artifactId>
     <version>1.0-SNAPSHOT</version>
     <packaging>jar</packaging>
@@ -13,7 +13,7 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <main.class>my.interview.tgbot.Main</main.class>
+        <main.class>com.legentey.tgbot.Main</main.class>
 
         <jackson.version>2.22.2</jackson.version>
         <sqlite.version>3.53.4.0</sqlite.version>

@@ -1,6 +1,6 @@
-package my.interview.tgbot.bot;
+package com.legentey.tgbot.bot;
 
-import my.interview.tgbot.storage.ChatUser;
+import com.legentey.tgbot.storage.ChatUser;
 
 import java.util.ArrayList;
 import java.util.List;

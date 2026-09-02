@@ -101,7 +101,7 @@ BOT_TOKEN=xxx:yyy java -jar target/tgbot.jar
 ## Структура проекта
 
 ```
-src/main/java/my/interview/tgbot/
+src/main/java/com/legentey/tgbot/
 ├── Main.java                  — точка входа, чтение конфигурации из env
 ├── Config.java                — конфигурация из переменных окружения
 ├── telegram/

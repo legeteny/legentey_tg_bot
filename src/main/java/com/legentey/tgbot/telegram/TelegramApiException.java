@@ -1,4 +1,4 @@
-package my.interview.tgbot.telegram;
+package com.legentey.tgbot.telegram;
 
 public class TelegramApiException extends RuntimeException {
 

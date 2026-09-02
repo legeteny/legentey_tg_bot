@@ -1,10 +1,10 @@
-package my.interview.tgbot.bot;
+package com.legentey.tgbot.bot;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import my.interview.tgbot.Config;
-import my.interview.tgbot.storage.ChatUser;
-import my.interview.tgbot.storage.UserStore;
-import my.interview.tgbot.telegram.TelegramApiClient;
+import com.legentey.tgbot.Config;
+import com.legentey.tgbot.storage.ChatUser;
+import com.legentey.tgbot.storage.UserStore;
+import com.legentey.tgbot.telegram.TelegramApiClient;
 
 import java.util.List;
 import java.util.Locale;

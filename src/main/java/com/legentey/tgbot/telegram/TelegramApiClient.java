@@ -1,4 +1,4 @@
-package my.interview.tgbot.telegram;
+package com.legentey.tgbot.telegram;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

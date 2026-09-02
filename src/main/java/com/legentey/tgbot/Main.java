@@ -1,9 +1,9 @@
-package my.interview.tgbot;
+package com.legentey.tgbot;
 
-import my.interview.tgbot.bot.BotService;
-import my.interview.tgbot.storage.SqliteStickerPackStore;
-import my.interview.tgbot.storage.SqliteUserStore;
-import my.interview.tgbot.telegram.TelegramApiClient;
+import com.legentey.tgbot.bot.BotService;
+import com.legentey.tgbot.storage.SqliteStickerPackStore;
+import com.legentey.tgbot.storage.SqliteUserStore;
+import com.legentey.tgbot.telegram.TelegramApiClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

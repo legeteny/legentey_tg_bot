@@ -1,4 +1,4 @@
-package my.interview.tgbot.storage;
+package com.legentey.tgbot.storage;
 
 import java.util.List;
 

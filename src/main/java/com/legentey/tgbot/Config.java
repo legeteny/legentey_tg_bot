@@ -1,4 +1,4 @@
-package my.interview.tgbot;
+package com.legentey.tgbot;
 
 public record Config(
         String botToken,

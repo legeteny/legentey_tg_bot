@@ -1,4 +1,4 @@
-package my.interview.tgbot;
+package com.legentey.tgbot;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;

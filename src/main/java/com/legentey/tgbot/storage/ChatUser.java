@@ -1,4 +1,4 @@
-package my.interview.tgbot.storage;
+package com.legentey.tgbot.storage;
 
 public record ChatUser(
         long chatId,
