@@ -25,4 +25,5 @@ jobs:
           EOF
 
       - name: Build and restart container
+        timeout-minutes: 10
         run: docker compose up -d --build
