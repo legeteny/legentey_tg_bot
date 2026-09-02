@@ -3,6 +3,7 @@ package com.legentey.tgbot.bot;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.legentey.tgbot.Config;
 import com.legentey.tgbot.GitInfo;
+import com.legentey.tgbot.quoteapi.QuoteApiClient;
 import com.legentey.tgbot.storage.StickerPackStore;
 import com.legentey.tgbot.storage.UserStore;
 import com.legentey.tgbot.telegram.TelegramApiClient;
@@ -47,7 +48,8 @@ public class BotService {
         String botUsername = me.path("username").asText("");
         log.info("Logged in as @{} (id={})", botUsername, me.path("id").asLong());
 
-        this.stickerService = new StickerService(client, stickerPackStore, botUsername, config.quotlyGroupChatId());
+        QuoteApiClient quoteApiClient = new QuoteApiClient(config.quoteApiUrl());
+        this.stickerService = new StickerService(client, quoteApiClient, stickerPackStore, botUsername);
         this.commandHandler = new CommandHandler(client, store, stickerService, config);
 
         try {
@@ -71,7 +73,6 @@ public class BotService {
                         log.error("Failed to handle update {}", update.path("update_id").asLong(), e);
                     }
                 }
-                stickerService.pruneStaleRequests();
             } catch (TelegramApiException e) {
                 Integer retryAfter = e.retryAfterSeconds();
                 long sleepMs = retryAfter != null ? retryAfter * 1000L : 5000L;
@@ -102,10 +103,6 @@ public class BotService {
     private void handleUpdate(JsonNode update) {
         JsonNode message = update.path("message");
         if (message.isMissingNode() || message.isNull()) {
-            return;
-        }
-
-        if (stickerService.tryHandleReply(message)) {
             return;
         }
 

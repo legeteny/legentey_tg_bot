@@ -69,9 +69,6 @@ public class CommandHandler {
         if (config.adminChatId() == null || requesterUserId != config.adminChatId()) {
             return;
         }
-        if (config.quotlyGroupChatId() == null) {
-            return;
-        }
         JsonNode replyTo = message.path("reply_to_message");
         if (replyTo.isMissingNode()) {
             return;
@@ -81,8 +78,7 @@ public class CommandHandler {
             client.sendMessage(chatId, "Укажите смайл после команды, например: /q 😂", null, messageId);
             return;
         }
-        long targetMessageId = replyTo.path("message_id").asLong();
-        stickerService.requestSticker(chatId, requesterUserId, targetMessageId, emoji);
+        stickerService.createQuote(chatId, requesterUserId, replyTo, emoji);
     }
 
     private static void sleepQuietly(long millis) {

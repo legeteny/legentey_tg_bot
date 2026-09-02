@@ -7,5 +7,19 @@ services:
       - .env
     environment:
       DB_PATH: /data/bot.db
+      QUOTE_API_URL: http://quote-api:3000
     volumes:
       - ./data:/data
+    depends_on:
+      - quote-api
+
+  quote-api:
+    build: https://github.com/LyoSU/quote-api.git#6f91434c8d22fda57bb2d7ad452a9b45f2b35f21
+    container_name: legentey_quote_api
+    restart: unless-stopped
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+    deploy:
+      resources:
+        limits:
+          memory: 1G

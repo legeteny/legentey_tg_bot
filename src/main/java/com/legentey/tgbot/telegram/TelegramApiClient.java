@@ -5,11 +5,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -17,7 +19,7 @@ import java.util.Map;
 /**
  * Minimal client for the Telegram Bot HTTP API. Talks to it directly instead of
  * pulling in a full-blown Telegram bot library, since this bot only needs a
- * handful of methods (getUpdates, sendMessage, setMyCommands).
+ * handful of methods (getUpdates, sendMessage, setMyCommands, sticker packs).
  */
 public class TelegramApiClient {
 
@@ -64,50 +66,48 @@ public class TelegramApiClient {
         return call("sendMessage", params, Duration.ofSeconds(20));
     }
 
-    /** Copies a message from one chat into another. Returns the new message (with its own message_id). */
-    public JsonNode forwardMessage(long chatId, long fromChatId, long messageId) {
-        Map<String, Object> params = Map.of(
-                "chat_id", chatId,
-                "from_chat_id", fromChatId,
-                "message_id", messageId
-        );
-        return call("forwardMessage", params, Duration.ofSeconds(20));
-    }
-
     /** Registers the bot's command menu (the suggestions shown when a user types "/"). */
     public void setMyCommands(List<Map<String, String>> commands) {
         call("setMyCommands", Map.of("commands", commands), Duration.ofSeconds(15));
     }
 
-    /** Creates a brand new sticker set owned by userId, seeded with one sticker. */
-    public void createNewStickerSet(long userId, String name, String title, String stickerFileId,
-                                     String format, List<String> emojiList) {
-        Map<String, Object> params = Map.of(
-                "user_id", userId,
+    /** Returns userId's profile photos, most recent first. */
+    public JsonNode getUserProfilePhotos(long userId) {
+        Map<String, Object> params = Map.of("user_id", userId, "limit", 1);
+        return call("getUserProfilePhotos", params, Duration.ofSeconds(15));
+    }
+
+    /** Creates a brand new static sticker set owned by userId, seeded with one PNG sticker. */
+    public void createNewStickerSet(long userId, String name, String title, byte[] pngBytes, List<String> emojiList) {
+        Map<String, String> fields = Map.of(
+                "user_id", String.valueOf(userId),
                 "name", name,
                 "title", title,
-                "stickers", List.of(inputSticker(stickerFileId, format, emojiList))
+                "stickers", "[" + inputStickerJson(emojiList) + "]"
         );
-        call("createNewStickerSet", params, Duration.ofSeconds(20));
+        callMultipart("createNewStickerSet", fields, pngBytes, Duration.ofSeconds(30));
     }
 
-    /** Adds one more sticker to a set previously created by this same bot. */
-    public void addStickerToSet(long userId, String name, String stickerFileId,
-                                 String format, List<String> emojiList) {
-        Map<String, Object> params = Map.of(
-                "user_id", userId,
+    /** Adds one more PNG sticker to a set previously created by this same bot. */
+    public void addStickerToSet(long userId, String name, byte[] pngBytes, List<String> emojiList) {
+        Map<String, String> fields = Map.of(
+                "user_id", String.valueOf(userId),
                 "name", name,
-                "sticker", inputSticker(stickerFileId, format, emojiList)
+                "sticker", inputStickerJson(emojiList)
         );
-        call("addStickerToSet", params, Duration.ofSeconds(20));
+        callMultipart("addStickerToSet", fields, pngBytes, Duration.ofSeconds(30));
     }
 
-    private static Map<String, Object> inputSticker(String stickerFileId, String format, List<String> emojiList) {
-        return Map.of(
-                "sticker", stickerFileId,
-                "format", format,
-                "emoji_list", emojiList
-        );
+    private String inputStickerJson(List<String> emojiList) {
+        try {
+            return mapper.writeValueAsString(Map.of(
+                    "sticker", "attach://sticker_file",
+                    "format", "static",
+                    "emoji_list", emojiList
+            ));
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to serialize sticker payload", e);
+        }
     }
 
     private JsonNode call(String method, Map<String, Object> params, Duration timeout) {
@@ -121,24 +121,68 @@ public class TelegramApiClient {
                     .build();
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            JsonNode json = mapper.readTree(response.body());
-
-            boolean ok = json.path("ok").asBoolean(false);
-            if (!ok) {
-                int errorCode = json.path("error_code").asInt(-1);
-                String description = json.path("description").asText("unknown error");
-                Integer retryAfter = json.path("parameters").path("retry_after").isMissingNode()
-                        ? null
-                        : json.path("parameters").path("retry_after").asInt();
-                throw new TelegramApiException(
-                        "Telegram API method '" + method + "' failed: " + description, errorCode, retryAfter);
-            }
-            return json.path("result");
+            return parseResult(method, response.body());
         } catch (IOException e) {
             throw new RuntimeException("I/O error calling Telegram method " + method, e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RuntimeException("Interrupted while calling Telegram method " + method, e);
         }
+    }
+
+    /** Same as {@link #call} but sends a multipart/form-data body with one attached file. */
+    private JsonNode callMultipart(String method, Map<String, String> fields, byte[] fileBytes, Duration timeout) {
+        String boundary = "TgBotBoundary" + System.nanoTime();
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            for (var entry : fields.entrySet()) {
+                writeField(out, boundary, entry.getKey(), entry.getValue());
+            }
+            out.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+            out.write(("Content-Disposition: form-data; name=\"sticker_file\"; filename=\"sticker.png\"\r\n")
+                    .getBytes(StandardCharsets.UTF_8));
+            out.write("Content-Type: image/png\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+            out.write(fileBytes);
+            out.write("\r\n".getBytes(StandardCharsets.UTF_8));
+            out.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/" + method))
+                    .timeout(timeout)
+                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(out.toByteArray()))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            return parseResult(method, response.body());
+        } catch (IOException e) {
+            throw new RuntimeException("I/O error calling Telegram method " + method, e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while calling Telegram method " + method, e);
+        }
+    }
+
+    private static void writeField(ByteArrayOutputStream out, String boundary, String name, String value) throws IOException {
+        out.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+        out.write(("Content-Disposition: form-data; name=\"" + name + "\"\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+        out.write(value.getBytes(StandardCharsets.UTF_8));
+        out.write("\r\n".getBytes(StandardCharsets.UTF_8));
+    }
+
+    private JsonNode parseResult(String method, String responseBody) throws IOException {
+        JsonNode json = mapper.readTree(responseBody);
+
+        boolean ok = json.path("ok").asBoolean(false);
+        if (!ok) {
+            int errorCode = json.path("error_code").asInt(-1);
+            String description = json.path("description").asText("unknown error");
+            Integer retryAfter = json.path("parameters").path("retry_after").isMissingNode()
+                    ? null
+                    : json.path("parameters").path("retry_after").asInt();
+            throw new TelegramApiException(
+                    "Telegram API method '" + method + "' failed: " + description, errorCode, retryAfter);
+        }
+        return json.path("result");
     }
 }
