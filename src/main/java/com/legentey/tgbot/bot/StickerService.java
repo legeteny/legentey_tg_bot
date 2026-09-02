@@ -60,7 +60,8 @@ public class StickerService {
             return;
         }
 
-        addToPack(chatId, requesterUserId, png, emoji);
+        String chatTitle = quotedMessage.path("chat").path("title").asText("");
+        addToPack(chatId, requesterUserId, png, emoji, chatTitle);
     }
 
     /**
@@ -86,23 +87,46 @@ public class StickerService {
         return node;
     }
 
-    private void addToPack(long chatId, long requesterUserId, byte[] png, String emoji) {
+    private void addToPack(long chatId, long requesterUserId, byte[] png, String emoji, String chatTitle) {
         List<String> emojiList = List.of(emoji);
         Optional<StickerPack> existing = packStore.findForChat(chatId);
         try {
             if (existing.isPresent()) {
                 StickerPack pack = existing.get();
-                client.addStickerToSet(pack.ownerUserId(), pack.packName(), png, emojiList);
-                client.sendMessage(chatId, "✅ Добавлено: t.me/addstickers/" + pack.packName(), null, null);
+                try {
+                    client.addStickerToSet(pack.ownerUserId(), pack.packName(), png, emojiList);
+                    sendAddedConfirmation(chatId, pack.packName());
+                } catch (TelegramApiException e) {
+                    if (!e.getMessage().contains("STICKERSET_INVALID")) {
+                        throw e;
+                    }
+                    // The pack we remembered no longer exists (e.g. the owner deleted it by hand) — recreate it.
+                    log.info("Pack {} for chat {} is gone, recreating", pack.packName(), chatId);
+                    createFreshPack(chatId, requesterUserId, pack.packName(), png, emojiList, chatTitle);
+                }
             } else {
                 String name = "q" + Math.abs(chatId) + "_by_" + botUsername;
-                client.createNewStickerSet(requesterUserId, name, "Цитаты", png, emojiList);
-                packStore.save(chatId, name, requesterUserId);
-                client.sendMessage(chatId, "✅ Создан стикерпак: t.me/addstickers/" + name, null, null);
+                createFreshPack(chatId, requesterUserId, name, png, emojiList, chatTitle);
             }
         } catch (TelegramApiException e) {
             log.warn("Failed to update sticker pack for chat {}: {}", chatId, e.getMessage());
             client.sendMessage(chatId, "⚠️ Не получилось добавить стикер: " + e.getMessage(), null, null);
         }
+    }
+
+    private void createFreshPack(long chatId, long requesterUserId, String name, byte[] png,
+                                  List<String> emojiList, String chatTitle) {
+        String title = truncate(chatTitle.isBlank() ? "Цитаты" : "Цитаты " + chatTitle, 64);
+        client.createNewStickerSet(requesterUserId, name, title, png, emojiList);
+        packStore.save(chatId, name, requesterUserId);
+        sendAddedConfirmation(chatId, name);
+    }
+
+    private void sendAddedConfirmation(long chatId, String packName) {
+        client.sendMessage(chatId, "Цитата добавлена в аналлы: t.me/addstickers/" + packName, null, null);
+    }
+
+    private static String truncate(String text, int maxLength) {
+        return text.length() <= maxLength ? text : text.substring(0, maxLength);
     }
 }
