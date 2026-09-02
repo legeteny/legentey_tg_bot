@@ -14,7 +14,7 @@ services:
       - quote-api
 
   quote-api:
-    build: https://github.com/LyoSU/quote-api.git#6f91434c8d22fda57bb2d7ad452a9b45f2b35f21
+    build: https://github.com/LyoSU/quote-api.git#master
     container_name: legentey_quote_api
     restart: unless-stopped
     environment:
