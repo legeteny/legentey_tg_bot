@@ -1,0 +1,25 @@
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Write .env
+        run: |
+          cat > .env <<EOF
+          BOT_TOKEN=${{ secrets.BOT_TOKEN }}
+          TAGALL_ADMIN_ONLY=${{ secrets.TAGALL_ADMIN_ONLY }}
+          POLL_TIMEOUT_SECONDS=${{ secrets.POLL_TIMEOUT_SECONDS }}
+          EOF
+
+      - name: Build and restart container
+        run: docker compose up -d --build
