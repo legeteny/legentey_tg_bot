@@ -1,0 +1,11 @@
+services:
+  tgbot:
+    build: .
+    container_name: legentey_tg_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_PATH: /data/bot.db
+    volumes:
+      - ./data:/data
