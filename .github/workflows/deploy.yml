@@ -19,6 +19,9 @@ jobs:
           BOT_TOKEN=${{ secrets.BOT_TOKEN }}
           TAGALL_ADMIN_ONLY=${{ secrets.TAGALL_ADMIN_ONLY }}
           POLL_TIMEOUT_SECONDS=${{ secrets.POLL_TIMEOUT_SECONDS }}
+          ADMIN_CHAT_ID=${{ secrets.ADMIN_CHAT_ID }}
+          GIT_COMMIT=$(git rev-parse --short HEAD)
+          GIT_COMMIT_MESSAGE=$(git log -1 --pretty=%s)
           EOF
 
       - name: Build and restart container

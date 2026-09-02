@@ -2,6 +2,7 @@ package my.interview.tgbot.bot;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import my.interview.tgbot.Config;
+import my.interview.tgbot.GitInfo;
 import my.interview.tgbot.storage.UserStore;
 import my.interview.tgbot.telegram.TelegramApiClient;
 import my.interview.tgbot.telegram.TelegramApiException;
@@ -48,6 +49,8 @@ public class BotService {
             log.warn("Failed to register command menu: {}", e.getMessage());
         }
 
+        notifyStartup();
+
         long offset = 0;
         while (running) {
             try {
@@ -69,6 +72,21 @@ public class BotService {
                 log.error("Unexpected error while polling for updates", e);
                 sleepQuietly(5000);
             }
+        }
+    }
+
+    private void notifyStartup() {
+        if (config.adminChatId() == null) {
+            log.info("ADMIN_CHAT_ID not set, skipping startup notification");
+            return;
+        }
+        GitInfo git = GitInfo.detect();
+        String text = "🚀 Бот запущен\nКоммит: " + git.hash()
+                + (git.message().isBlank() ? "" : "\n" + git.message());
+        try {
+            client.sendMessage(config.adminChatId(), text, null, null);
+        } catch (TelegramApiException e) {
+            log.warn("Failed to send startup notification: {}", e.getMessage());
         }
     }
 
