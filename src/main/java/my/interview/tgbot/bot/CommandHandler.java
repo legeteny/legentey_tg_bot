@@ -18,18 +18,18 @@ public class CommandHandler {
         this.store = store;
     }
 
-    public void handle(long chatId, long messageId, boolean isGroup, String text) {
+    public void handle(long chatId, boolean isGroup, String text) {
         String rawCommand = text.trim().split("\\s+", 2)[0];
         int at = rawCommand.indexOf('@');
         String command = (at >= 0 ? rawCommand.substring(1, at) : rawCommand.substring(1))
                 .toLowerCase(Locale.ROOT);
 
         if (command.equals("all")) {
-            handleAll(chatId, messageId, isGroup);
+            handleAll(chatId, isGroup);
         }
     }
 
-    private void handleAll(long chatId, long messageId, boolean isGroup) {
+    private void handleAll(long chatId, boolean isGroup) {
         if (!isGroup) {
             return;
         }
@@ -41,7 +41,7 @@ public class CommandHandler {
 
         List<String> chunks = MentionFormatter.buildMentionMessages(users);
         for (int i = 0; i < chunks.size(); i++) {
-            client.sendMessage(chatId, chunks.get(i), "MarkdownV2", i == 0 ? messageId : null);
+            client.sendMessage(chatId, chunks.get(i), "MarkdownV2", null);
             if (i < chunks.size() - 1) {
                 sleepQuietly(1200);
             }

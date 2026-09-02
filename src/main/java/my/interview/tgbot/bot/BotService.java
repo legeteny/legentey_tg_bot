@@ -133,8 +133,7 @@ public class BotService {
             return;
         }
 
-        long messageId = message.path("message_id").asLong();
-        commandHandler.handle(chatId, messageId, isGroup, text);
+        commandHandler.handle(chatId, isGroup, text);
     }
 
     private static String textOrNull(JsonNode node, String field) {
