@@ -52,7 +52,6 @@ public class SqliteUserStore implements UserStore {
                         username TEXT,
                         first_name TEXT,
                         last_name TEXT,
-                        opted_out INTEGER NOT NULL DEFAULT 0,
                         updated_at INTEGER NOT NULL,
                         PRIMARY KEY (chat_id, user_id)
                     )
@@ -64,8 +63,8 @@ public class SqliteUserStore implements UserStore {
     public void upsertUser(long chatId, long userId, String username, String firstName, String lastName) {
         synchronized (lock) {
             String sql = """
-                    INSERT INTO chat_users (chat_id, user_id, username, first_name, last_name, opted_out, updated_at)
-                    VALUES (?, ?, ?, ?, ?, 0, ?)
+                    INSERT INTO chat_users (chat_id, user_id, username, first_name, last_name, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT(chat_id, user_id) DO UPDATE SET
                         username = excluded.username,
                         first_name = excluded.first_name,
@@ -101,31 +100,9 @@ public class SqliteUserStore implements UserStore {
     }
 
     @Override
-    public void setOptedOut(long chatId, long userId, boolean optedOut) {
-        synchronized (lock) {
-            String sql = """
-                    INSERT INTO chat_users (chat_id, user_id, opted_out, updated_at)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(chat_id, user_id) DO UPDATE SET
-                        opted_out = excluded.opted_out,
-                        updated_at = excluded.updated_at
-                    """;
-            try (PreparedStatement ps = connection.prepareStatement(sql)) {
-                ps.setLong(1, chatId);
-                ps.setLong(2, userId);
-                ps.setInt(3, optedOut ? 1 : 0);
-                ps.setLong(4, System.currentTimeMillis());
-                ps.executeUpdate();
-            } catch (SQLException e) {
-                log.error("Failed to set opted_out for user {} in chat {}", userId, chatId, e);
-            }
-        }
-    }
-
-    @Override
     public List<ChatUser> listChatUsers(long chatId) {
         synchronized (lock) {
-            String sql = "SELECT user_id, username, first_name, last_name, opted_out FROM chat_users WHERE chat_id = ?";
+            String sql = "SELECT user_id, username, first_name, last_name FROM chat_users WHERE chat_id = ?";
             List<ChatUser> result = new ArrayList<>();
             try (PreparedStatement ps = connection.prepareStatement(sql)) {
                 ps.setLong(1, chatId);
@@ -136,8 +113,7 @@ public class SqliteUserStore implements UserStore {
                                 rs.getLong("user_id"),
                                 rs.getString("username"),
                                 rs.getString("first_name"),
-                                rs.getString("last_name"),
-                                rs.getInt("opted_out") != 0
+                                rs.getString("last_name")
                         ));
                     }
                 }
@@ -145,22 +121,6 @@ public class SqliteUserStore implements UserStore {
                 log.error("Failed to list users for chat {}", chatId, e);
             }
             return result;
-        }
-    }
-
-    @Override
-    public int countChatUsers(long chatId) {
-        synchronized (lock) {
-            String sql = "SELECT COUNT(*) FROM chat_users WHERE chat_id = ?";
-            try (PreparedStatement ps = connection.prepareStatement(sql)) {
-                ps.setLong(1, chatId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    return rs.next() ? rs.getInt(1) : 0;
-                }
-            } catch (SQLException e) {
-                log.error("Failed to count users for chat {}", chatId, e);
-                return 0;
-            }
         }
     }
 

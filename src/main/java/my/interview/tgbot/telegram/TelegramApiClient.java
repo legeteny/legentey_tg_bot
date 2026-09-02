@@ -11,6 +11,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -65,6 +66,11 @@ public class TelegramApiClient {
 
     public JsonNode getChatAdministrators(long chatId) {
         return call("getChatAdministrators", Map.of("chat_id", chatId), Duration.ofSeconds(15));
+    }
+
+    /** Registers the bot's command menu (the suggestions shown when a user types "/"). */
+    public void setMyCommands(List<Map<String, String>> commands) {
+        call("setMyCommands", Map.of("commands", commands), Duration.ofSeconds(15));
     }
 
     private JsonNode call(String method, Map<String, Object> params, Duration timeout) {

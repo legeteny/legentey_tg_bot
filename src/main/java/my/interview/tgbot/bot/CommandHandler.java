@@ -11,30 +11,10 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Locale;
-import java.util.stream.Collectors;
 
 public class CommandHandler {
 
     private static final Logger log = LoggerFactory.getLogger(CommandHandler.class);
-
-    private static final String HELP_TEXT = """
-            Привет! Я умею тегать всех известных мне участников группы.
-
-            Команды:
-            /tagall [текст] — упомянуть всех известных участников чата (можно добавить текст объявления)
-            /tagme — включить себя в список для упоминания
-            /notagme — исключить себя из списка (я не буду вас упоминать)
-            /count — сколько участников я сейчас знаю в этом чате
-            /help — это сообщение
-
-            Важно: у ботов нет доступа к полному списку участников группы через API Telegram.
-            Я запоминаю только тех, кого видел — кто писал сообщения в чате, пока я в нём состою,
-            либо кто вступал в группу после моего добавления. Поэтому сразу после добавления
-            список может быть неполным — он пополнится по мере переписки.
-
-            Чтобы я видел все сообщения (а не только команды), отключите Privacy Mode у бота
-            через @BotFather (/setprivacy → Disable), либо назначьте бота администратором группы.
-            """;
 
     private final TelegramApiClient client;
     private final UserStore store;
@@ -56,34 +36,16 @@ public class CommandHandler {
                 .toLowerCase(Locale.ROOT);
 
         long senderId = from.path("id").asLong();
-        String username = textOrNull(from, "username");
-        String firstName = textOrNull(from, "first_name");
-        String lastName = textOrNull(from, "last_name");
 
         switch (command) {
-            case "start", "help" -> client.sendMessage(chatId, HELP_TEXT, null, null);
-            case "tagall", "all", "everyone" -> handleTagAll(chatId, messageId, isGroup, senderId, args);
-            case "tagme" -> {
-                store.upsertUser(chatId, senderId, username, firstName, lastName);
-                store.setOptedOut(chatId, senderId, false);
-                client.sendMessage(chatId, "Готово, теперь я буду упоминать вас в /tagall.", null, messageId);
-            }
-            case "notagme" -> {
-                store.upsertUser(chatId, senderId, username, firstName, lastName);
-                store.setOptedOut(chatId, senderId, true);
-                client.sendMessage(chatId, "Хорошо, больше не буду упоминать вас в /tagall.", null, messageId);
-            }
-            case "count" -> {
-                int count = store.countChatUsers(chatId);
-                client.sendMessage(chatId, "Я знаю " + count + " участник(ов) этого чата.", null, messageId);
-            }
+            case "all" -> handleAll(chatId, messageId, isGroup, senderId, args);
             default -> {
                 // Unknown command — stay quiet to avoid spamming unrelated bot commands in the group.
             }
         }
     }
 
-    private void handleTagAll(long chatId, long messageId, boolean isGroup, long senderId, String args) {
+    private void handleAll(long chatId, long messageId, boolean isGroup, long senderId, String args) {
         if (!isGroup) {
             client.sendMessage(chatId, "Эта команда работает только в группах.", null, messageId);
             return;
@@ -94,9 +56,7 @@ public class CommandHandler {
             return;
         }
 
-        List<ChatUser> users = store.listChatUsers(chatId).stream()
-                .filter(u -> !u.optedOut())
-                .collect(Collectors.toList());
+        List<ChatUser> users = store.listChatUsers(chatId);
 
         if (users.isEmpty()) {
             client.sendMessage(chatId,
@@ -131,11 +91,6 @@ public class CommandHandler {
             // Fail closed: if we can't verify admin rights, don't allow a mass-mention.
             return false;
         }
-    }
-
-    private static String textOrNull(JsonNode node, String field) {
-        JsonNode value = node.path(field);
-        return value.isMissingNode() || value.isNull() ? null : value.asText();
     }
 
     private static void sleepQuietly(long millis) {

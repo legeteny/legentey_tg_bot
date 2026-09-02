@@ -8,7 +8,14 @@ import my.interview.tgbot.telegram.TelegramApiException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
+import java.util.Map;
+
 public class BotService {
+
+    private static final List<Map<String, String>> COMMANDS = List.of(
+            Map.of("command", "all", "description", "Упомянуть всех известных участников чата")
+    );
 
     private static final Logger log = LoggerFactory.getLogger(BotService.class);
 
@@ -33,6 +40,13 @@ public class BotService {
     public void run() {
         JsonNode me = client.getMe();
         log.info("Logged in as @{} (id={})", me.path("username").asText(""), me.path("id").asLong());
+
+        try {
+            client.setMyCommands(COMMANDS);
+            log.info("Registered command menu ({} commands)", COMMANDS.size());
+        } catch (TelegramApiException e) {
+            log.warn("Failed to register command menu: {}", e.getMessage());
+        }
 
         long offset = 0;
         while (running) {

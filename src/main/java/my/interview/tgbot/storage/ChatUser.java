@@ -5,8 +5,7 @@ public record ChatUser(
         long userId,
         String username,
         String firstName,
-        String lastName,
-        boolean optedOut
+        String lastName
 ) {
 
     public String displayName() {

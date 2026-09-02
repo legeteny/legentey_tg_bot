@@ -10,9 +10,5 @@ public interface UserStore {
     /** Removes a user from a chat's known-members list (e.g. they left the chat). */
     void removeUser(long chatId, long userId);
 
-    void setOptedOut(long chatId, long userId, boolean optedOut);
-
     List<ChatUser> listChatUsers(long chatId);
-
-    int countChatUsers(long chatId);
 }
