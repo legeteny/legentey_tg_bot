@@ -1,6 +1,7 @@
 package com.legentey.tgbot.bot;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.legentey.tgbot.quoteapi.QuoteApiClient;
 import com.legentey.tgbot.storage.StickerPack;
@@ -47,7 +48,7 @@ public class StickerService {
 
     /** Renders the quoted message and adds it to chatId's sticker pack. */
     public void createQuote(long chatId, long ownerUserId, JsonNode quotedMessage, String emoji) {
-        JsonNode from = buildFromNode(quotedMessage.path("from"));
+        JsonNode from = buildFromNode(resolveAuthor(quotedMessage));
         String text = quotedMessage.path("text").asText("");
         JsonNode entities = quotedMessage.path("entities");
 
@@ -65,6 +66,35 @@ public class StickerService {
     }
 
     /**
+     * If the quoted message is itself a forward, credit the original author
+     * instead of whoever forwarded it into this chat.
+     */
+    private JsonNode resolveAuthor(JsonNode quotedMessage) {
+        JsonNode origin = quotedMessage.path("forward_origin");
+        if (origin.isMissingNode()) {
+            return quotedMessage.path("from");
+        }
+        return switch (origin.path("type").asText("")) {
+            case "user" -> origin.path("sender_user");
+            case "hidden_user" -> chatlikeFrom(0, origin.path("sender_user_name").asText(""));
+            case "chat" -> chatlikeFrom(origin.path("sender_chat"));
+            case "channel" -> chatlikeFrom(origin.path("chat"));
+            default -> quotedMessage.path("from");
+        };
+    }
+
+    private JsonNode chatlikeFrom(JsonNode chat) {
+        return chatlikeFrom(chat.path("id").asLong(), chat.path("title").asText(""));
+    }
+
+    private JsonNode chatlikeFrom(long id, String name) {
+        ObjectNode node = JsonNodeFactory.instance.objectNode();
+        node.put("id", id);
+        node.put("name", name);
+        return node;
+    }
+
+    /**
      * Best-effort: attaches the user's Premium emoji status, if any. quote-api
      * fetches the avatar itself (via its own getChat call) once "avatar": true
      * is set, so we don't need to pre-fetch a photo — but emoji_status isn't
@@ -76,6 +106,9 @@ public class StickerService {
         }
         ObjectNode node = ((ObjectNode) telegramFrom).deepCopy();
         long userId = telegramFrom.path("id").asLong();
+        if (userId <= 0) {
+            return node;
+        }
         try {
             String emojiStatusId = client.getChat(userId).path("emoji_status_custom_emoji_id").asText(null);
             if (emojiStatusId != null && !emojiStatusId.isBlank()) {
