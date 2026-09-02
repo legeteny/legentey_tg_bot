@@ -53,7 +53,7 @@ public class StickerService {
 
         byte[] png;
         try {
-            png = quoteApiClient.generateQuotePng(from, text, entities);
+            png = StickerImage.normalizeForSticker(quoteApiClient.generateQuotePng(from, text, entities));
         } catch (RuntimeException e) {
             log.warn("quote-api failed to render a quote for chat {}: {}", chatId, e.getMessage());
             client.sendMessage(chatId, "⚠️ Не получилось сгенерировать стикер.", null, null);
