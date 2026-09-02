@@ -17,7 +17,7 @@ import java.util.Map;
 /**
  * Minimal client for the Telegram Bot HTTP API. Talks to it directly instead of
  * pulling in a full-blown Telegram bot library, since this bot only needs a
- * handful of methods (getUpdates, sendMessage, getChatAdministrators/Member).
+ * handful of methods (getUpdates, sendMessage, setMyCommands).
  */
 public class TelegramApiClient {
 
@@ -62,10 +62,6 @@ public class TelegramApiClient {
             params.put("allow_sending_without_reply", true);
         }
         return call("sendMessage", params, Duration.ofSeconds(20));
-    }
-
-    public JsonNode getChatAdministrators(long chatId) {
-        return call("getChatAdministrators", Map.of("chat_id", chatId), Duration.ofSeconds(15));
     }
 
     /** Registers the bot's command menu (the suggestions shown when a user types "/"). */

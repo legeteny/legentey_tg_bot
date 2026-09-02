@@ -3,7 +3,6 @@ package my.interview.tgbot;
 public record Config(
         String botToken,
         String dbPath,
-        boolean tagAllAdminOnly,
         int getUpdatesTimeoutSeconds,
         Long adminChatId
 ) {
@@ -11,10 +10,9 @@ public record Config(
     public static Config fromEnv() {
         String token = require("BOT_TOKEN");
         String dbPath = System.getenv().getOrDefault("DB_PATH", "/data/bot.db");
-        boolean adminOnly = Boolean.parseBoolean(System.getenv().getOrDefault("TAGALL_ADMIN_ONLY", "true"));
         int timeout = parseIntOrDefault(System.getenv("POLL_TIMEOUT_SECONDS"), 30);
         Long adminChatId = parseLongOrNull(System.getenv("ADMIN_CHAT_ID"));
-        return new Config(token, dbPath, adminOnly, timeout, adminChatId);
+        return new Config(token, dbPath, timeout, adminChatId);
     }
 
     private static String require(String name) {

@@ -21,22 +21,21 @@ public final class MentionFormatter {
     private MentionFormatter() {
     }
 
-    public static List<String> buildMentionMessages(List<ChatUser> users, String headerText) {
+    public static List<String> buildMentionMessages(List<ChatUser> users) {
         List<String> messages = new ArrayList<>();
         if (users.isEmpty()) {
             return messages;
         }
 
-        String header = escape(headerText) + "\n\n";
-        StringBuilder current = new StringBuilder(header);
+        StringBuilder current = new StringBuilder();
         boolean currentEmpty = true;
 
         for (ChatUser user : users) {
             String token = mentionToken(user);
             // +1 for the separating space we add between tokens.
             if (!currentEmpty && current.length() + token.length() + 1 > MAX_MESSAGE_LENGTH) {
-                messages.add(current.toString().stripTrailing());
-                current = new StringBuilder(header);
+                messages.add(current.toString());
+                current = new StringBuilder();
                 currentEmpty = true;
             }
             if (!currentEmpty) {
@@ -47,7 +46,7 @@ public final class MentionFormatter {
         }
 
         if (!currentEmpty) {
-            messages.add(current.toString().stripTrailing());
+            messages.add(current.toString());
         }
         return messages;
     }

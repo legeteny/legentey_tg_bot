@@ -23,7 +23,7 @@ public class Main {
             store.close();
         }, "shutdown-hook"));
 
-        log.info("Starting Telegram tag-all bot (adminOnly={})", config.tagAllAdminOnly());
+        log.info("Starting Telegram tag-all bot");
         botService.run();
     }
 }

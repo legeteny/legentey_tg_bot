@@ -31,7 +31,7 @@ public class BotService {
         this.client = client;
         this.store = store;
         this.config = config;
-        this.commandHandler = new CommandHandler(client, store, config);
+        this.commandHandler = new CommandHandler(client, store);
     }
 
     public void stop() {
@@ -133,12 +133,8 @@ public class BotService {
             return;
         }
 
-        JsonNode from = message.path("from");
-        if (from.isMissingNode()) {
-            return;
-        }
         long messageId = message.path("message_id").asLong();
-        commandHandler.handle(chatId, messageId, isGroup, from, text);
+        commandHandler.handle(chatId, messageId, isGroup, text);
     }
 
     private static String textOrNull(JsonNode node, String field) {
