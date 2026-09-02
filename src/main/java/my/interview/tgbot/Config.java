@@ -4,7 +4,8 @@ public record Config(
         String botToken,
         String dbPath,
         int getUpdatesTimeoutSeconds,
-        Long adminChatId
+        Long adminChatId,
+        Long quotlyGroupChatId
 ) {
 
     public static Config fromEnv() {
@@ -12,7 +13,8 @@ public record Config(
         String dbPath = System.getenv().getOrDefault("DB_PATH", "/data/bot.db");
         int timeout = parseIntOrDefault(System.getenv("POLL_TIMEOUT_SECONDS"), 30);
         Long adminChatId = parseLongOrNull(System.getenv("ADMIN_CHAT_ID"));
-        return new Config(token, dbPath, timeout, adminChatId);
+        Long quotlyGroupChatId = parseLongOrNull(System.getenv("QUOTLY_GROUP_CHAT_ID"));
+        return new Config(token, dbPath, timeout, adminChatId, quotlyGroupChatId);
     }
 
     private static String require(String name) {

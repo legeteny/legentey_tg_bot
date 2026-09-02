@@ -64,9 +64,50 @@ public class TelegramApiClient {
         return call("sendMessage", params, Duration.ofSeconds(20));
     }
 
+    /** Copies a message from one chat into another. Returns the new message (with its own message_id). */
+    public JsonNode forwardMessage(long chatId, long fromChatId, long messageId) {
+        Map<String, Object> params = Map.of(
+                "chat_id", chatId,
+                "from_chat_id", fromChatId,
+                "message_id", messageId
+        );
+        return call("forwardMessage", params, Duration.ofSeconds(20));
+    }
+
     /** Registers the bot's command menu (the suggestions shown when a user types "/"). */
     public void setMyCommands(List<Map<String, String>> commands) {
         call("setMyCommands", Map.of("commands", commands), Duration.ofSeconds(15));
+    }
+
+    /** Creates a brand new sticker set owned by userId, seeded with one sticker. */
+    public void createNewStickerSet(long userId, String name, String title, String stickerFileId,
+                                     String format, List<String> emojiList) {
+        Map<String, Object> params = Map.of(
+                "user_id", userId,
+                "name", name,
+                "title", title,
+                "stickers", List.of(inputSticker(stickerFileId, format, emojiList))
+        );
+        call("createNewStickerSet", params, Duration.ofSeconds(20));
+    }
+
+    /** Adds one more sticker to a set previously created by this same bot. */
+    public void addStickerToSet(long userId, String name, String stickerFileId,
+                                 String format, List<String> emojiList) {
+        Map<String, Object> params = Map.of(
+                "user_id", userId,
+                "name", name,
+                "sticker", inputSticker(stickerFileId, format, emojiList)
+        );
+        call("addStickerToSet", params, Duration.ofSeconds(20));
+    }
+
+    private static Map<String, Object> inputSticker(String stickerFileId, String format, List<String> emojiList) {
+        return Map.of(
+                "sticker", stickerFileId,
+                "format", format,
+                "emoji_list", emojiList
+        );
     }
 
     private JsonNode call(String method, Map<String, Object> params, Duration timeout) {
