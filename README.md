@@ -2,7 +2,8 @@
 
 Бот на Java 21, который умеет упоминать всех известных ему участников группы командой `/all`,
 а также превращать сообщения в стикеры-цитаты (`/q`) — рендер берёт самостоятельно развёрнутый
-[quote-api](https://github.com/LyoSU/quote-api) (движок, на котором работает @QuotLyBot).
+[quote-api](https://github.com/legeteny/quote-api) (форк движка, на котором работает @QuotLyBot;
+оригинал — [LyoSU/quote-api](https://github.com/LyoSU/quote-api)).
 Никаких сторонних Telegram-библиотек — прямые HTTP-запросы к Bot API (`java.net.http.HttpClient`) + Jackson для JSON.
 Данные (участники чатов, стикерпаки) хранятся в SQLite-файле, чтобы бот переживал перезапуски.
 
