@@ -65,6 +65,10 @@ public class CommandHandler {
         if (!isGroup) {
             return;
         }
+        long requesterUserId = message.path("from").path("id").asLong();
+        if (config.adminChatId() == null || requesterUserId != config.adminChatId()) {
+            return;
+        }
         if (config.quotlyGroupChatId() == null) {
             return;
         }
@@ -77,7 +81,6 @@ public class CommandHandler {
             client.sendMessage(chatId, "Укажите смайл после команды, например: /q 😂", null, messageId);
             return;
         }
-        long requesterUserId = message.path("from").path("id").asLong();
         long targetMessageId = replyTo.path("message_id").asLong();
         stickerService.requestSticker(chatId, requesterUserId, targetMessageId, emoji);
     }
