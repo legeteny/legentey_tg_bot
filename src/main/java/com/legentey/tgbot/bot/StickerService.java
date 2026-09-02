@@ -46,7 +46,7 @@ public class StickerService {
     }
 
     /** Renders the quoted message and adds it to chatId's sticker pack. */
-    public void createQuote(long chatId, long requesterUserId, JsonNode quotedMessage, String emoji) {
+    public void createQuote(long chatId, long ownerUserId, JsonNode quotedMessage, String emoji) {
         JsonNode from = buildFromNode(quotedMessage.path("from"));
         String text = quotedMessage.path("text").asText("");
         JsonNode entities = quotedMessage.path("entities");
@@ -61,7 +61,7 @@ public class StickerService {
         }
 
         String chatTitle = quotedMessage.path("chat").path("title").asText("");
-        addToPack(chatId, requesterUserId, png, emoji, chatTitle);
+        addToPack(chatId, ownerUserId, png, emoji, chatTitle);
     }
 
     /**
@@ -87,7 +87,7 @@ public class StickerService {
         return node;
     }
 
-    private void addToPack(long chatId, long requesterUserId, byte[] png, String emoji, String chatTitle) {
+    private void addToPack(long chatId, long ownerUserId, byte[] png, String emoji, String chatTitle) {
         List<String> emojiList = List.of(emoji);
         Optional<StickerPack> existing = packStore.findForChat(chatId);
         try {
@@ -102,11 +102,11 @@ public class StickerService {
                     }
                     // The pack we remembered no longer exists (e.g. the owner deleted it by hand) — recreate it.
                     log.info("Pack {} for chat {} is gone, recreating", pack.packName(), chatId);
-                    createFreshPack(chatId, requesterUserId, pack.packName(), png, emojiList, chatTitle);
+                    createFreshPack(chatId, ownerUserId, pack.packName(), png, emojiList, chatTitle);
                 }
             } else {
                 String name = "q" + Math.abs(chatId) + "_by_" + botUsername;
-                createFreshPack(chatId, requesterUserId, name, png, emojiList, chatTitle);
+                createFreshPack(chatId, ownerUserId, name, png, emojiList, chatTitle);
             }
         } catch (TelegramApiException e) {
             log.warn("Failed to update sticker pack for chat {}: {}", chatId, e.getMessage());
@@ -114,11 +114,11 @@ public class StickerService {
         }
     }
 
-    private void createFreshPack(long chatId, long requesterUserId, String name, byte[] png,
+    private void createFreshPack(long chatId, long ownerUserId, String name, byte[] png,
                                   List<String> emojiList, String chatTitle) {
         String title = truncate(chatTitle.isBlank() ? "Цитаты" : "Цитаты " + chatTitle, 64);
-        client.createNewStickerSet(requesterUserId, name, title, png, emojiList);
-        packStore.save(chatId, name, requesterUserId);
+        client.createNewStickerSet(ownerUserId, name, title, png, emojiList);
+        packStore.save(chatId, name, ownerUserId);
         sendAddedConfirmation(chatId, name);
     }
 

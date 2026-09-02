@@ -17,7 +17,8 @@ import java.util.Map;
 public class BotService {
 
     private static final List<Map<String, String>> COMMANDS = List.of(
-            Map.of("command", "all", "description", "Упомянуть всех известных участников чата")
+            Map.of("command", "all", "description", "Упомянуть всех известных участников чата"),
+            Map.of("command", "q", "description", "Ответом на сообщение и смайлом — сделать из него стикер-цитату")
     );
 
     private static final Logger log = LoggerFactory.getLogger(BotService.class);

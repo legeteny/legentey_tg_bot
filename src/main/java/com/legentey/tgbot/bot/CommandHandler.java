@@ -65,8 +65,7 @@ public class CommandHandler {
         if (!isGroup) {
             return;
         }
-        long requesterUserId = message.path("from").path("id").asLong();
-        if (config.adminChatId() == null || requesterUserId != config.adminChatId()) {
+        if (config.adminChatId() == null) {
             return;
         }
         JsonNode replyTo = message.path("reply_to_message");
@@ -78,7 +77,8 @@ public class CommandHandler {
             client.sendMessage(chatId, "Укажите смайл после команды, например: /q 😂", null, messageId);
             return;
         }
-        stickerService.createQuote(chatId, requesterUserId, replyTo, emoji);
+        // Sticker packs are always owned by the admin account, regardless of who calls /q.
+        stickerService.createQuote(chatId, config.adminChatId(), replyTo, emoji);
     }
 
     private static void sleepQuietly(long millis) {
