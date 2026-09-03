@@ -71,10 +71,6 @@ public class CommandHandler {
         if (config.adminChatId() == null) {
             return;
         }
-        // TEMPORARY: restricted to the admin while quote-rendering issues are being sorted out.
-        if (!isAdmin(message)) {
-            return;
-        }
         JsonNode replyTo = message.path("reply_to_message");
         if (replyTo.isMissingNode()) {
             return;
