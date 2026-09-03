@@ -98,7 +98,8 @@ public class CommandHandler {
         new Thread(() -> {
             StickerService.RerenderResult result = stickerService.rerenderAll();
             client.sendMessage(chatId,
-                    "Готово: обновлено " + result.updated() + ", ошибок " + result.failed() + ".", null, null);
+                    "Готово: обновлено " + result.updated() + ", ошибок " + result.failed()
+                            + ", удалено устаревших " + result.removed() + ".", null, null);
         }, "rerender-quotes").start();
     }
 

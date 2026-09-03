@@ -19,4 +19,7 @@ public interface QuoteStickerStore {
 
     /** Backfills a profile field a rerender had to fetch live, so the next rerender reuses it. */
     void updateProfile(long id, String avatarFileId, String emojiStatus, String username);
+
+    /** Drops a record whose sticker no longer exists in its pack (deleted by hand, pack recreated). */
+    void delete(long id);
 }

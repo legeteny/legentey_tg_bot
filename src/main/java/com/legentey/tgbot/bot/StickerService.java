@@ -103,11 +103,14 @@ public class StickerService {
      * a rerender moved replaced stickers to the front of the pack). Stickers with
      * no remembered render inputs (created before this bot started tracking them)
      * are simply skipped — left exactly as they are, in their existing position.
+     * Records whose sticker no longer exists in its pack (deleted by hand, or the
+     * pack got recreated) are dropped from the database instead of retried forever.
      */
     public RerenderResult rerenderAll() {
         int width = renderSettingsStore.getWidth();
         int updated = 0;
         int failed = 0;
+        int removed = 0;
         for (String packName : quoteStickerStore.findDistinctPackNames()) {
             List<QuoteSticker> stickers = quoteStickerStore.findByPack(packName);
             if (stickers.isEmpty()) {
@@ -116,8 +119,9 @@ public class StickerService {
             RerenderResult packResult = rerenderPack(packName, stickers, width);
             updated += packResult.updated();
             failed += packResult.failed();
+            removed += packResult.removed();
         }
-        return new RerenderResult(updated, failed);
+        return new RerenderResult(updated, failed, removed);
     }
 
     private RerenderResult rerenderPack(String packName, List<QuoteSticker> stickers, int width) {
@@ -128,25 +132,30 @@ public class StickerService {
 
         int updated = 0;
         int failed = 0;
+        int removed = 0;
         for (QuoteSticker sticker : stickers) {
-            String newFileId = rerenderOne(sticker, width, knownFileIds);
-            if (newFileId == null) {
+            OneResult result = rerenderOne(sticker, width, knownFileIds);
+            if (result.removed()) {
+                removed++;
+                continue;
+            }
+            if (result.newFileId() == null) {
                 failed++;
                 continue;
             }
             Integer position = positions.get(sticker.fileId());
             if (position != null) {
                 try {
-                    client.setStickerPositionInSet(newFileId, position);
+                    client.setStickerPositionInSet(result.newFileId(), position);
                 } catch (TelegramApiException e) {
                     log.warn("Failed to pin position for sticker {} in pack {}: {}",
                             sticker.id(), packName, e.getMessage());
                 }
             }
-            quoteStickerStore.updateFileId(sticker.id(), newFileId);
+            quoteStickerStore.updateFileId(sticker.id(), result.newFileId());
             updated++;
         }
-        return new RerenderResult(updated, failed);
+        return new RerenderResult(updated, failed, removed);
     }
 
     /** file_id -> current index within the pack, snapshotted once before any replaces this run. */
@@ -166,34 +175,69 @@ public class StickerService {
         return positions;
     }
 
-    /** Re-renders and swaps one sticker; returns its new file_id, or null on failure. */
-    private String rerenderOne(QuoteSticker sticker, int width, Set<String> knownFileIds) {
+    /** Result of re-rendering one sticker: either a new file_id, a plain failure, or removed as stale. */
+    private record OneResult(String newFileId, boolean removed) {
+        static OneResult updated(String fileId) {
+            return new OneResult(fileId, false);
+        }
+
+        static final OneResult FAILED = new OneResult(null, false);
+        static final OneResult REMOVED = new OneResult(null, true);
+    }
+
+    private OneResult rerenderOne(QuoteSticker sticker, int width, Set<String> knownFileIds) {
+        JsonNode base;
+        JsonNode entities;
         try {
-            JsonNode base = mapper.readTree(sticker.fromJson());
-            JsonNode entities = sticker.entitiesJson() == null ? null : mapper.readTree(sticker.entitiesJson());
+            base = mapper.readTree(sticker.fromJson());
+            entities = sticker.entitiesJson() == null ? null : mapper.readTree(sticker.entitiesJson());
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to parse stored render inputs for quote sticker {}: {}", sticker.id(), e.getMessage());
+            return OneResult.FAILED;
+        }
 
-            Profile stored = new Profile(sticker.avatarFileId(), sticker.emojiStatus(), sticker.username());
-            Profile effective = fillMissing(stored, base.path("id").asLong());
+        Profile stored = new Profile(sticker.avatarFileId(), sticker.emojiStatus(), sticker.username());
+        Profile effective = fillMissing(stored, base.path("id").asLong());
+        JsonNode from = applyProfile(base, effective);
 
-            JsonNode from = applyProfile(base, effective);
-            log.info("Rerendering sticker {} (author id={}): stored avatarFileId={}, effective avatarFileId={}, "
-                            + "from.photo={}",
-                    sticker.id(), base.path("id").asLong(), sticker.avatarFileId(), effective.avatarFileId(),
-                    from.path("photo"));
-            byte[] png = StickerImage.normalizeForSticker(
+        byte[] png;
+        try {
+            png = StickerImage.normalizeForSticker(
                     quoteApiClient.generateQuotePng(from, sticker.text(), entities, width));
+        } catch (RuntimeException e) {
+            log.warn("quote-api failed to re-render quote sticker {} in pack {}: {}",
+                    sticker.id(), sticker.packName(), e.getMessage());
+            return OneResult.FAILED;
+        }
+
+        try {
             client.replaceStickerInSet(sticker.ownerUserId(), sticker.packName(), sticker.fileId(),
                     png, List.of(sticker.emoji()));
-
-            if (!effective.equals(stored)) {
-                quoteStickerStore.updateProfile(sticker.id(),
-                        effective.avatarFileId(), effective.emojiStatus(), effective.username());
+        } catch (TelegramApiException e) {
+            if (e.getMessage().contains("STICKERSET_INVALID")) {
+                // The sticker this record points at no longer exists in the pack — deleted by
+                // hand, or the pack itself was recreated after we last saw it. Nothing to retry.
+                log.info("Sticker {} no longer exists in pack {}, dropping its stale record",
+                        sticker.id(), sticker.packName());
+                quoteStickerStore.delete(sticker.id());
+                return OneResult.REMOVED;
             }
-            return findNewFileId(sticker.packName(), knownFileIds);
-        } catch (RuntimeException | JsonProcessingException e) {
             log.warn("Failed to re-render quote sticker {} in pack {}: {}",
                     sticker.id(), sticker.packName(), e.getMessage());
-            return null;
+            return OneResult.FAILED;
+        }
+
+        if (!effective.equals(stored)) {
+            quoteStickerStore.updateProfile(sticker.id(),
+                    effective.avatarFileId(), effective.emojiStatus(), effective.username());
+        }
+
+        try {
+            return OneResult.updated(findNewFileId(sticker.packName(), knownFileIds));
+        } catch (RuntimeException e) {
+            log.warn("Sticker {} was replaced but its new file_id could not be looked up: {}",
+                    sticker.id(), e.getMessage());
+            return OneResult.FAILED;
         }
     }
 
@@ -225,7 +269,7 @@ public class StickerService {
                 stored.username() != null ? stored.username() : live.username());
     }
 
-    public record RerenderResult(int updated, int failed) {
+    public record RerenderResult(int updated, int failed, int removed) {
     }
 
     /**
