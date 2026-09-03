@@ -21,6 +21,21 @@ import java.time.Duration;
  */
 public class QuoteApiClient {
 
+    /**
+     * Max line width handed to quote-api, against its own default of 512. A
+     * narrower card wraps sooner, so a quote of any length comes out closer to
+     * square — and since the render is downscaled to a 512px sticker by its
+     * longer side, a squarer card survives that downscale with larger text.
+     */
+    private static final int RENDER_WIDTH = 358;
+
+    /**
+     * quote-api treats "height" purely as a truncation budget: text overflowing
+     * it is cut with an ellipsis. Raised in step with the narrower width
+     * (512 / 0.7) so the same amount of text still fits before being cut.
+     */
+    private static final int RENDER_HEIGHT = 732;
+
     private final String baseUrl;
     private final HttpClient httpClient;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -44,6 +59,8 @@ public class QuoteApiClient {
 
         ObjectNode payload = mapper.createObjectNode();
         payload.putArray("messages").add(message);
+        payload.put("width", RENDER_WIDTH);
+        payload.put("height", RENDER_HEIGHT);
 
         try {
             String body = mapper.writeValueAsString(payload);
