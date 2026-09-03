@@ -1,9 +1,14 @@
 package com.legentey.tgbot.bot;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.legentey.tgbot.quoteapi.QuoteApiClient;
+import com.legentey.tgbot.storage.QuoteSticker;
+import com.legentey.tgbot.storage.QuoteStickerStore;
+import com.legentey.tgbot.storage.RenderSettingsStore;
 import com.legentey.tgbot.storage.StickerPack;
 import com.legentey.tgbot.storage.StickerPackStore;
 import com.legentey.tgbot.telegram.TelegramApiClient;
@@ -36,14 +41,28 @@ public class StickerService {
     private final TelegramApiClient client;
     private final QuoteApiClient quoteApiClient;
     private final StickerPackStore packStore;
+    private final QuoteStickerStore quoteStickerStore;
+    private final RenderSettingsStore renderSettingsStore;
     private final String botUsername;
+    private final ObjectMapper mapper = new ObjectMapper();
 
-    public StickerService(TelegramApiClient client, QuoteApiClient quoteApiClient,
-                           StickerPackStore packStore, String botUsername) {
+    public StickerService(TelegramApiClient client, QuoteApiClient quoteApiClient, StickerPackStore packStore,
+                           QuoteStickerStore quoteStickerStore, RenderSettingsStore renderSettingsStore,
+                           String botUsername) {
         this.client = client;
         this.quoteApiClient = quoteApiClient;
         this.packStore = packStore;
+        this.quoteStickerStore = quoteStickerStore;
+        this.renderSettingsStore = renderSettingsStore;
         this.botUsername = botUsername;
+    }
+
+    public int getRenderWidth() {
+        return renderSettingsStore.getWidth();
+    }
+
+    public void setRenderWidth(int width) {
+        renderSettingsStore.setWidth(width);
     }
 
     /** Renders the quoted message and adds it to chatId's sticker pack. */
@@ -53,12 +72,15 @@ public class StickerService {
             client.sendMessage(chatId, "В этом сообщении нет текста — цитировать нечего.", null, null);
             return;
         }
-        JsonNode from = buildFromNode(resolveAuthor(quotedMessage));
+        JsonNode author = resolveAuthor(quotedMessage);
+        Profile profile = fetchProfile(author.path("id").asLong());
+        JsonNode from = applyProfile(author, profile);
         JsonNode entities = quotedEntities(quotedMessage);
 
         byte[] png;
         try {
-            png = StickerImage.normalizeForSticker(quoteApiClient.generateQuotePng(from, text, entities));
+            png = StickerImage.normalizeForSticker(
+                    quoteApiClient.generateQuotePng(from, text, entities, renderSettingsStore.getWidth()));
         } catch (RuntimeException e) {
             log.warn("quote-api failed to render a quote for chat {}: {}", chatId, e.getMessage());
             client.sendMessage(chatId, "Не получилось сгенерировать стикер.", null, null);
@@ -66,7 +88,124 @@ public class StickerService {
         }
 
         String chatTitle = quotedMessage.path("chat").path("title").asText("");
-        addToPack(chatId, ownerUserId, png, emoji, chatTitle);
+        addToPack(chatId, ownerUserId, png, emoji, chatTitle, author, profile, text, entities);
+    }
+
+    /**
+     * Re-renders every remembered quote sticker with the current render width and
+     * swaps each one in place in its pack. Stickers with no remembered render
+     * inputs (created before this bot started tracking them) are simply skipped —
+     * left exactly as they are.
+     */
+    public RerenderResult rerenderAll() {
+        int width = renderSettingsStore.getWidth();
+        int updated = 0;
+        int failed = 0;
+        for (String packName : quoteStickerStore.findDistinctPackNames()) {
+            List<QuoteSticker> stickers = quoteStickerStore.findByPack(packName);
+            if (stickers.isEmpty()) {
+                continue;
+            }
+            for (QuoteSticker sticker : stickers) {
+                if (rerenderOne(sticker, width)) {
+                    updated++;
+                } else {
+                    failed++;
+                }
+            }
+            refreshFileIds(packName, stickers);
+        }
+        return new RerenderResult(updated, failed);
+    }
+
+    private boolean rerenderOne(QuoteSticker sticker, int width) {
+        try {
+            JsonNode base = mapper.readTree(sticker.fromJson());
+            JsonNode entities = sticker.entitiesJson() == null ? null : mapper.readTree(sticker.entitiesJson());
+
+            Profile stored = new Profile(sticker.avatarFileId(), sticker.emojiStatus(), sticker.username());
+            Profile effective = fillMissing(stored, base.path("id").asLong());
+
+            JsonNode from = applyProfile(base, effective);
+            byte[] png = StickerImage.normalizeForSticker(
+                    quoteApiClient.generateQuotePng(from, sticker.text(), entities, width));
+            client.replaceStickerInSet(sticker.ownerUserId(), sticker.packName(), sticker.fileId(),
+                    png, List.of(sticker.emoji()));
+
+            if (!effective.equals(stored)) {
+                quoteStickerStore.updateProfile(sticker.id(),
+                        effective.avatarFileId(), effective.emojiStatus(), effective.username());
+            }
+            return true;
+        } catch (RuntimeException | JsonProcessingException e) {
+            log.warn("Failed to re-render quote sticker {} in pack {}: {}",
+                    sticker.id(), sticker.packName(), e.getMessage());
+            return false;
+        }
+    }
+
+    /** Fills any null field of a stored profile with that author's current value. */
+    private Profile fillMissing(Profile stored, long userId) {
+        if (stored.avatarFileId() != null && stored.emojiStatus() != null && stored.username() != null) {
+            return stored;
+        }
+        Profile live = fetchProfile(userId);
+        return new Profile(
+                stored.avatarFileId() != null ? stored.avatarFileId() : live.avatarFileId(),
+                stored.emojiStatus() != null ? stored.emojiStatus() : live.emojiStatus(),
+                stored.username() != null ? stored.username() : live.username());
+    }
+
+    /**
+     * replaceStickerInSet assigns each swapped sticker a new file_id; refetch the
+     * set once per pack afterwards and update our records so the next rerender
+     * still has a valid file_id to replace.
+     */
+    private void refreshFileIds(String packName, List<QuoteSticker> stickers) {
+        try {
+            JsonNode setStickers = client.getStickerSet(packName).path("stickers");
+            for (int i = 0; i < stickers.size() && i < setStickers.size(); i++) {
+                String newFileId = setStickers.get(i).path("file_id").asText(null);
+                if (newFileId != null) {
+                    quoteStickerStore.updateFileId(stickers.get(i).id(), newFileId);
+                }
+            }
+        } catch (TelegramApiException e) {
+            log.warn("Failed to refresh file_ids for pack {}: {}", packName, e.getMessage());
+        }
+    }
+
+    public record RerenderResult(int updated, int failed) {
+    }
+
+    /**
+     * An author's avatar (as a Telegram file_id — see getChat's "photo.big_file_id"),
+     * Premium emoji status and username, as known at some point in time. Any field
+     * may be null (not fetched, or the author genuinely has none).
+     */
+    private record Profile(String avatarFileId, String emojiStatus, String username) {
+        static final Profile EMPTY = new Profile(null, null, null);
+    }
+
+    /** Live lookup of an author's current avatar/emoji-status/username via getChat. */
+    private Profile fetchProfile(long userId) {
+        if (userId <= 0) {
+            return Profile.EMPTY;
+        }
+        try {
+            JsonNode chat = client.getChat(userId);
+            String avatarFileId = blankToNull(chat.path("photo").path("big_file_id").asText(null));
+            String emojiStatus = blankToNull(chat.path("emoji_status_custom_emoji_id").asText(null));
+            String username = blankToNull(chat.path("username").asText(null));
+            return new Profile(avatarFileId, emojiStatus, username);
+        } catch (TelegramApiException e) {
+            log.debug("Could not fetch profile for user {}: {}", userId, e.getMessage());
+            return Profile.EMPTY;
+        }
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     /**
@@ -114,65 +253,96 @@ public class StickerService {
         return node;
     }
 
-    /**
-     * Best-effort: attaches the user's Premium emoji status, if any. quote-api
-     * fetches the avatar itself (via its own getChat call) once "avatar": true
-     * is set, so we don't need to pre-fetch a photo — but emoji_status isn't
-     * part of a plain message's "from" and has to come from getChat here.
-     */
-    private JsonNode buildFromNode(JsonNode telegramFrom) {
-        if (!telegramFrom.isObject()) {
-            return telegramFrom;
+    /** Overlays a profile's avatar/emoji-status/username onto a copy of a base "from" node. */
+    private static JsonNode applyProfile(JsonNode baseFrom, Profile profile) {
+        if (!baseFrom.isObject()) {
+            return baseFrom;
         }
-        ObjectNode node = ((ObjectNode) telegramFrom).deepCopy();
-        long userId = telegramFrom.path("id").asLong();
-        if (userId <= 0) {
-            return node;
-        }
-        try {
-            String emojiStatusId = client.getChat(userId).path("emoji_status_custom_emoji_id").asText(null);
-            if (emojiStatusId != null && !emojiStatusId.isBlank()) {
-                node.put("emoji_status", emojiStatusId);
-            }
-        } catch (TelegramApiException e) {
-            log.debug("Could not fetch chat info for user {}: {}", userId, e.getMessage());
+        ObjectNode node = ((ObjectNode) baseFrom).deepCopy();
+        setOrRemove(node, "username", profile.username());
+        setOrRemove(node, "emoji_status", profile.emojiStatus());
+        if (profile.avatarFileId() != null) {
+            node.putObject("photo").put("big_file_id", profile.avatarFileId());
+        } else {
+            node.remove("photo");
         }
         return node;
     }
 
-    private void addToPack(long chatId, long ownerUserId, byte[] png, String emoji, String chatTitle) {
+    private static void setOrRemove(ObjectNode node, String field, String value) {
+        if (value != null) {
+            node.put(field, value);
+        } else {
+            node.remove(field);
+        }
+    }
+
+    private void addToPack(long chatId, long ownerUserId, byte[] png, String emoji, String chatTitle,
+                            JsonNode author, Profile profile, String text, JsonNode entities) {
         List<String> emojiList = List.of(emoji);
         Optional<StickerPack> existing = packStore.findForChat(chatId);
+        String packName;
         try {
             if (existing.isPresent()) {
                 StickerPack pack = existing.get();
                 try {
                     client.addStickerToSet(pack.ownerUserId(), pack.packName(), png, emojiList);
                     sendAddedConfirmation(chatId, pack.packName());
+                    packName = pack.packName();
                 } catch (TelegramApiException e) {
                     if (!e.getMessage().contains("STICKERSET_INVALID")) {
                         throw e;
                     }
                     // The pack we remembered no longer exists (e.g. the owner deleted it by hand) — recreate it.
                     log.info("Pack {} for chat {} is gone, recreating", pack.packName(), chatId);
-                    createFreshPack(chatId, ownerUserId, pack.packName(), png, emojiList, chatTitle);
+                    packName = createFreshPack(chatId, ownerUserId, pack.packName(), png, emojiList, chatTitle);
                 }
             } else {
                 String name = "q" + Math.abs(chatId) + "_by_" + botUsername;
-                createFreshPack(chatId, ownerUserId, name, png, emojiList, chatTitle);
+                packName = createFreshPack(chatId, ownerUserId, name, png, emojiList, chatTitle);
             }
         } catch (TelegramApiException e) {
             log.warn("Failed to update sticker pack for chat {}: {}", chatId, e.getMessage());
             client.sendMessage(chatId, "Не получилось добавить стикер: " + e.getMessage(), null, null);
+            return;
+        }
+        rememberRenderInputs(chatId, packName, ownerUserId, author, profile, text, entities, emoji);
+    }
+
+    /**
+     * Saves the render inputs behind the sticker just added, keyed to the file_id
+     * Telegram assigned it, so a later rerenderAll() can regenerate and swap it.
+     * Best-effort: if we can't fetch the file_id, the sticker still exists, it just
+     * won't be picked up by a future rerender.
+     */
+    private void rememberRenderInputs(long chatId, String packName, long ownerUserId, JsonNode author,
+                                       Profile profile, String text, JsonNode entities, String emoji) {
+        try {
+            JsonNode setStickers = client.getStickerSet(packName).path("stickers");
+            int n = setStickers.size();
+            if (n == 0) {
+                return;
+            }
+            String fileId = setStickers.get(n - 1).path("file_id").asText(null);
+            if (fileId == null) {
+                return;
+            }
+            String entitiesJson = entities != null && entities.isArray() && !entities.isEmpty()
+                    ? entities.toString() : null;
+            quoteStickerStore.save(chatId, packName, ownerUserId, fileId, author.toString(), text, entitiesJson,
+                    emoji, profile.avatarFileId(), profile.emojiStatus(), profile.username());
+        } catch (TelegramApiException e) {
+            log.warn("Could not remember render inputs for new sticker in pack {}: {}", packName, e.getMessage());
         }
     }
 
-    private void createFreshPack(long chatId, long ownerUserId, String name, byte[] png,
-                                  List<String> emojiList, String chatTitle) {
+    private String createFreshPack(long chatId, long ownerUserId, String name, byte[] png,
+                                    List<String> emojiList, String chatTitle) {
         String title = truncate(chatTitle.isBlank() ? "Цитаты" : "Цитаты " + chatTitle, 64);
         client.createNewStickerSet(ownerUserId, name, title, png, emojiList);
         packStore.save(chatId, name, ownerUserId);
         sendAddedConfirmation(chatId, name);
+        return name;
     }
 
     private void sendAddedConfirmation(long chatId, String packName) {

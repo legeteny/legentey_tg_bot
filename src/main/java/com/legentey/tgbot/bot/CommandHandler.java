@@ -37,6 +37,9 @@ public class CommandHandler {
         switch (command) {
             case "all" -> handleAll(chatId, isGroup);
             case "q" -> handleQ(message, chatId, isGroup, args);
+            case "q_rerender" -> handleQRerender(message, chatId);
+            case "q_get_width" -> handleQGetWidth(message, chatId);
+            case "q_set_width" -> handleQSetWidth(message, chatId, args);
             default -> {
             }
         }
@@ -79,6 +82,66 @@ public class CommandHandler {
         }
         // Sticker packs are always owned by the admin account, regardless of who calls /q.
         stickerService.createQuote(chatId, config.adminChatId(), replyTo, emoji);
+    }
+
+    /**
+     * Admin-only, hidden: re-renders every quote sticker in every pack with the
+     * current render width and swaps them in place. Runs off-thread since a full
+     * rerender across all packs can take a while and shouldn't stall the
+     * update-polling loop.
+     */
+    private void handleQRerender(JsonNode message, long chatId) {
+        if (!isAdmin(message)) {
+            return;
+        }
+        client.sendMessage(chatId, "Перерендериваю все стикеры-цитаты...", null, null);
+        new Thread(() -> {
+            StickerService.RerenderResult result = stickerService.rerenderAll();
+            client.sendMessage(chatId,
+                    "Готово: обновлено " + result.updated() + ", ошибок " + result.failed() + ".", null, null);
+        }, "rerender-quotes").start();
+    }
+
+    /** Admin-only, hidden: reports the render width new /q stickers use. */
+    private void handleQGetWidth(JsonNode message, long chatId) {
+        if (!isAdmin(message)) {
+            return;
+        }
+        client.sendMessage(chatId, "Текущая ширина рендера: " + stickerService.getRenderWidth(), null, null);
+    }
+
+    /**
+     * Admin-only, hidden: changes the render width for future /q stickers. Doesn't
+     * touch existing stickers by itself — follow up with /q_rerender for those.
+     */
+    private void handleQSetWidth(JsonNode message, long chatId, String args) {
+        if (!isAdmin(message)) {
+            return;
+        }
+        Integer width = parsePositiveInt(args);
+        if (width == null) {
+            client.sendMessage(chatId, "Укажите положительное число, например: /q_set_width 280", null, null);
+            return;
+        }
+        stickerService.setRenderWidth(width);
+        client.sendMessage(chatId,
+                "Ширина рендера установлена: " + width + ". Существующие стикеры не тронуты — для них /q_rerender.",
+                null, null);
+    }
+
+    private boolean isAdmin(JsonNode message) {
+        Long adminId = config.adminChatId();
+        long fromId = message.path("from").path("id").asLong();
+        return adminId != null && fromId == adminId;
+    }
+
+    private static Integer parsePositiveInt(String text) {
+        try {
+            int value = Integer.parseInt(text.trim());
+            return value > 0 ? value : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static void sleepQuietly(long millis) {

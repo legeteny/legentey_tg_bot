@@ -97,6 +97,26 @@ public class TelegramApiClient {
         callMultipart("addStickerToSet", fields, pngBytes, Duration.ofSeconds(30));
     }
 
+    /** Full sticker set info, including each sticker's current file_id and its order in the set. */
+    public JsonNode getStickerSet(String name) {
+        return call("getStickerSet", Map.of("name", name), Duration.ofSeconds(15));
+    }
+
+    /**
+     * Swaps one sticker in a bot-owned set for a freshly rendered PNG, keeping its
+     * position in the set. Telegram assigns the replacement a new file_id.
+     */
+    public void replaceStickerInSet(long userId, String name, String oldStickerFileId,
+                                     byte[] pngBytes, List<String> emojiList) {
+        Map<String, String> fields = Map.of(
+                "user_id", String.valueOf(userId),
+                "name", name,
+                "old_sticker", oldStickerFileId,
+                "sticker", inputStickerJson(emojiList)
+        );
+        callMultipart("replaceStickerInSet", fields, pngBytes, Duration.ofSeconds(30));
+    }
+
     private String inputStickerJson(List<String> emojiList) {
         try {
             return mapper.writeValueAsString(Map.of(

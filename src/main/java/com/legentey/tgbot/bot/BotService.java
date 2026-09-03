@@ -5,6 +5,8 @@ import com.legentey.tgbot.Config;
 import com.legentey.tgbot.GitInfo;
 import com.legentey.tgbot.quoteapi.QuoteApiClient;
 import com.legentey.tgbot.storage.DeployStore;
+import com.legentey.tgbot.storage.QuoteStickerStore;
+import com.legentey.tgbot.storage.RenderSettingsStore;
 import com.legentey.tgbot.storage.StickerPackStore;
 import com.legentey.tgbot.storage.UserStore;
 import com.legentey.tgbot.telegram.TelegramApiClient;
@@ -27,6 +29,8 @@ public class BotService {
     private final TelegramApiClient client;
     private final UserStore store;
     private final StickerPackStore stickerPackStore;
+    private final QuoteStickerStore quoteStickerStore;
+    private final RenderSettingsStore renderSettingsStore;
     private final DeployStore deployStore;
     private final Config config;
 
@@ -36,10 +40,13 @@ public class BotService {
     private volatile boolean running = true;
 
     public BotService(TelegramApiClient client, UserStore store, StickerPackStore stickerPackStore,
+                      QuoteStickerStore quoteStickerStore, RenderSettingsStore renderSettingsStore,
                       DeployStore deployStore, Config config) {
         this.client = client;
         this.store = store;
         this.stickerPackStore = stickerPackStore;
+        this.quoteStickerStore = quoteStickerStore;
+        this.renderSettingsStore = renderSettingsStore;
         this.deployStore = deployStore;
         this.config = config;
     }
@@ -54,7 +61,8 @@ public class BotService {
         log.info("Logged in as @{} (id={})", botUsername, me.path("id").asLong());
 
         QuoteApiClient quoteApiClient = new QuoteApiClient(config.quoteApiUrl());
-        this.stickerService = new StickerService(client, quoteApiClient, stickerPackStore, botUsername);
+        this.stickerService = new StickerService(client, quoteApiClient, stickerPackStore, quoteStickerStore,
+                renderSettingsStore, botUsername);
         this.commandHandler = new CommandHandler(client, store, stickerService, config);
 
         try {

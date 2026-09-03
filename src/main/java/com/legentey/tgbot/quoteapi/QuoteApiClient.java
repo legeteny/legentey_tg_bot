@@ -21,22 +21,6 @@ import java.time.Duration;
  */
 public class QuoteApiClient {
 
-    /**
-     * Max line width handed to quote-api, against its own default of 512. A
-     * narrower card wraps sooner, so a quote of any length comes out closer to
-     * square — and since the render is downscaled to a 512px sticker by its
-     * longer side, a squarer card survives that downscale with larger text.
-     */
-    private static final int RENDER_WIDTH = 280;
-
-    /**
-     * quote-api treats "height" purely as a truncation budget: text overflowing
-     * it is cut with an ellipsis. Derived from the width so that narrowing the
-     * card never costs text: whatever fraction of 512 the width gives up, the
-     * height gains back.
-     */
-    private static final int RENDER_HEIGHT = 512 * 512 / RENDER_WIDTH;
-
     private final String baseUrl;
     private final HttpClient httpClient;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -48,8 +32,17 @@ public class QuoteApiClient {
                 .build();
     }
 
-    /** Renders a single-message quote card and returns PNG bytes. */
-    public byte[] generateQuotePng(JsonNode from, String text, JsonNode entities) {
+    /**
+     * Renders a single-message quote card and returns PNG bytes.
+     *
+     * @param width max line width handed to quote-api, against its own default of
+     *              512 (see RenderSettingsStore/{@code /q_set_width}). A narrower
+     *              card wraps sooner, so a quote of any length comes out closer to
+     *              square — and since the render is downscaled to a 512px sticker
+     *              by its longer side, a squarer card survives that downscale with
+     *              larger text.
+     */
+    public byte[] generateQuotePng(JsonNode from, String text, JsonNode entities, int width) {
         ObjectNode message = mapper.createObjectNode();
         message.set("from", from);
         message.put("text", text == null ? "" : text);
@@ -58,10 +51,16 @@ public class QuoteApiClient {
             message.set("entities", entities);
         }
 
+        // quote-api treats "height" purely as a truncation budget: text overflowing
+        // it is cut with an ellipsis. Derived from the width so that narrowing the
+        // card never costs text: whatever fraction of 512 the width gives up, the
+        // height gains back.
+        int height = 512 * 512 / width;
+
         ObjectNode payload = mapper.createObjectNode();
         payload.putArray("messages").add(message);
-        payload.put("width", RENDER_WIDTH);
-        payload.put("height", RENDER_HEIGHT);
+        payload.put("width", width);
+        payload.put("height", height);
 
         try {
             String body = mapper.writeValueAsString(payload);

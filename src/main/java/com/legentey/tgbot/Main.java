@@ -2,6 +2,8 @@ package com.legentey.tgbot;
 
 import com.legentey.tgbot.bot.BotService;
 import com.legentey.tgbot.storage.SqliteDeployStore;
+import com.legentey.tgbot.storage.SqliteQuoteStickerStore;
+import com.legentey.tgbot.storage.SqliteRenderSettingsStore;
 import com.legentey.tgbot.storage.SqliteStickerPackStore;
 import com.legentey.tgbot.storage.SqliteUserStore;
 import com.legentey.tgbot.telegram.TelegramApiClient;
@@ -17,15 +19,20 @@ public class Main {
 
         SqliteUserStore store = new SqliteUserStore(config.dbPath());
         SqliteStickerPackStore stickerPackStore = new SqliteStickerPackStore(config.dbPath());
+        SqliteQuoteStickerStore quoteStickerStore = new SqliteQuoteStickerStore(config.dbPath());
+        SqliteRenderSettingsStore renderSettingsStore = new SqliteRenderSettingsStore(config.dbPath());
         SqliteDeployStore deployStore = new SqliteDeployStore(config.dbPath());
         TelegramApiClient client = new TelegramApiClient(config.botToken());
-        BotService botService = new BotService(client, store, stickerPackStore, deployStore, config);
+        BotService botService = new BotService(client, store, stickerPackStore, quoteStickerStore,
+                renderSettingsStore, deployStore, config);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("Shutting down...");
             botService.stop();
             store.close();
             stickerPackStore.close();
+            quoteStickerStore.close();
+            renderSettingsStore.close();
             deployStore.close();
         }, "shutdown-hook"));
 
