@@ -214,7 +214,7 @@ public class StickerService {
             client.replaceStickerInSet(sticker.ownerUserId(), sticker.packName(), sticker.fileId(),
                     png, List.of(sticker.emoji()));
         } catch (TelegramApiException e) {
-            if (e.getMessage().contains("STICKERSET_INVALID")) {
+            if (e.getMessage().contains("STICKERSET_INVALID") || e.getMessage().contains("STICKER_ALREADY_DELETED")) {
                 // The sticker this record points at no longer exists in the pack — deleted by
                 // hand, or the pack itself was recreated after we last saw it. Nothing to retry.
                 log.info("Sticker {} no longer exists in pack {}, dropping its stale record",
