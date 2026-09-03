@@ -3,6 +3,8 @@ package com.legentey.tgbot.quoteapi;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
@@ -20,6 +22,8 @@ import java.time.Duration;
  * through another bot to get correct attribution.
  */
 public class QuoteApiClient {
+
+    private static final Logger log = LoggerFactory.getLogger(QuoteApiClient.class);
 
     private final String baseUrl;
     private final HttpClient httpClient;
@@ -64,6 +68,7 @@ public class QuoteApiClient {
 
         try {
             String body = mapper.writeValueAsString(payload);
+            log.info("POST {}/generate.png body={}", baseUrl, body);
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + "/generate.png"))
                     .timeout(Duration.ofSeconds(30))
