@@ -16,8 +16,12 @@ import com.legentey.tgbot.telegram.TelegramApiException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Handles /q: renders a quote-card sticker for a replied-to message via a
@@ -93,9 +97,12 @@ public class StickerService {
 
     /**
      * Re-renders every remembered quote sticker with the current render width and
-     * swaps each one in place in its pack. Stickers with no remembered render
-     * inputs (created before this bot started tracking them) are simply skipped —
-     * left exactly as they are.
+     * swaps each one in place in its pack — including pinning it back to the exact
+     * position it held before, since replaceStickerInSet's documented
+     * position-preserving behavior isn't reliably observed in practice (confirmed:
+     * a rerender moved replaced stickers to the front of the pack). Stickers with
+     * no remembered render inputs (created before this bot started tracking them)
+     * are simply skipped — left exactly as they are, in their existing position.
      */
     public RerenderResult rerenderAll() {
         int width = renderSettingsStore.getWidth();
@@ -106,19 +113,61 @@ public class StickerService {
             if (stickers.isEmpty()) {
                 continue;
             }
-            for (QuoteSticker sticker : stickers) {
-                if (rerenderOne(sticker, width)) {
-                    updated++;
-                } else {
-                    failed++;
-                }
-            }
-            refreshFileIds(packName, stickers);
+            RerenderResult packResult = rerenderPack(packName, stickers, width);
+            updated += packResult.updated();
+            failed += packResult.failed();
         }
         return new RerenderResult(updated, failed);
     }
 
-    private boolean rerenderOne(QuoteSticker sticker, int width) {
+    private RerenderResult rerenderPack(String packName, List<QuoteSticker> stickers, int width) {
+        Map<String, Integer> positions = fetchPositions(packName);
+        // Grows as each sticker gets its turn, so findNewFileId() stays correct even
+        // when several stickers in this same pack are replaced back to back.
+        Set<String> knownFileIds = new HashSet<>(positions.keySet());
+
+        int updated = 0;
+        int failed = 0;
+        for (QuoteSticker sticker : stickers) {
+            String newFileId = rerenderOne(sticker, width, knownFileIds);
+            if (newFileId == null) {
+                failed++;
+                continue;
+            }
+            Integer position = positions.get(sticker.fileId());
+            if (position != null) {
+                try {
+                    client.setStickerPositionInSet(newFileId, position);
+                } catch (TelegramApiException e) {
+                    log.warn("Failed to pin position for sticker {} in pack {}: {}",
+                            sticker.id(), packName, e.getMessage());
+                }
+            }
+            quoteStickerStore.updateFileId(sticker.id(), newFileId);
+            updated++;
+        }
+        return new RerenderResult(updated, failed);
+    }
+
+    /** file_id -> current index within the pack, snapshotted once before any replaces this run. */
+    private Map<String, Integer> fetchPositions(String packName) {
+        Map<String, Integer> positions = new LinkedHashMap<>();
+        try {
+            JsonNode setStickers = client.getStickerSet(packName).path("stickers");
+            for (int i = 0; i < setStickers.size(); i++) {
+                String fileId = setStickers.get(i).path("file_id").asText(null);
+                if (fileId != null) {
+                    positions.put(fileId, i);
+                }
+            }
+        } catch (TelegramApiException e) {
+            log.warn("Failed to fetch sticker positions for pack {}: {}", packName, e.getMessage());
+        }
+        return positions;
+    }
+
+    /** Re-renders and swaps one sticker; returns its new file_id, or null on failure. */
+    private String rerenderOne(QuoteSticker sticker, int width, Set<String> knownFileIds) {
         try {
             JsonNode base = mapper.readTree(sticker.fromJson());
             JsonNode entities = sticker.entitiesJson() == null ? null : mapper.readTree(sticker.entitiesJson());
@@ -136,12 +185,28 @@ public class StickerService {
                 quoteStickerStore.updateProfile(sticker.id(),
                         effective.avatarFileId(), effective.emojiStatus(), effective.username());
             }
-            return true;
+            return findNewFileId(sticker.packName(), knownFileIds);
         } catch (RuntimeException | JsonProcessingException e) {
             log.warn("Failed to re-render quote sticker {} in pack {}: {}",
                     sticker.id(), sticker.packName(), e.getMessage());
-            return false;
+            return null;
         }
+    }
+
+    /**
+     * replaceStickerInSet doesn't return the replacement's file_id, so we refetch
+     * the set and pick out whichever sticker isn't already in knownFileIds — that's
+     * the one that was just added — then remember it so it isn't picked again.
+     */
+    private String findNewFileId(String packName, Set<String> knownFileIds) {
+        JsonNode setStickers = client.getStickerSet(packName).path("stickers");
+        for (JsonNode s : setStickers) {
+            String fileId = s.path("file_id").asText(null);
+            if (fileId != null && knownFileIds.add(fileId)) {
+                return fileId;
+            }
+        }
+        return null;
     }
 
     /** Fills any null field of a stored profile with that author's current value. */
@@ -154,25 +219,6 @@ public class StickerService {
                 stored.avatarFileId() != null ? stored.avatarFileId() : live.avatarFileId(),
                 stored.emojiStatus() != null ? stored.emojiStatus() : live.emojiStatus(),
                 stored.username() != null ? stored.username() : live.username());
-    }
-
-    /**
-     * replaceStickerInSet assigns each swapped sticker a new file_id; refetch the
-     * set once per pack afterwards and update our records so the next rerender
-     * still has a valid file_id to replace.
-     */
-    private void refreshFileIds(String packName, List<QuoteSticker> stickers) {
-        try {
-            JsonNode setStickers = client.getStickerSet(packName).path("stickers");
-            for (int i = 0; i < stickers.size() && i < setStickers.size(); i++) {
-                String newFileId = setStickers.get(i).path("file_id").asText(null);
-                if (newFileId != null) {
-                    quoteStickerStore.updateFileId(stickers.get(i).id(), newFileId);
-                }
-            }
-        } catch (TelegramApiException e) {
-            log.warn("Failed to refresh file_ids for pack {}: {}", packName, e.getMessage());
-        }
     }
 
     public record RerenderResult(int updated, int failed) {

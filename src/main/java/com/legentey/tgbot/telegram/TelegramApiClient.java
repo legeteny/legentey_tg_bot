@@ -103,8 +103,10 @@ public class TelegramApiClient {
     }
 
     /**
-     * Swaps one sticker in a bot-owned set for a freshly rendered PNG, keeping its
-     * position in the set. Telegram assigns the replacement a new file_id.
+     * Swaps one sticker in a bot-owned set for a freshly rendered PNG. Telegram
+     * assigns the replacement a new file_id — and its documented position-preserving
+     * behavior isn't reliably observed in practice, so callers that care about order
+     * should follow up with {@link #setStickerPositionInSet}.
      */
     public void replaceStickerInSet(long userId, String name, String oldStickerFileId,
                                      byte[] pngBytes, List<String> emojiList) {
@@ -115,6 +117,15 @@ public class TelegramApiClient {
                 "sticker", inputStickerJson(emojiList)
         );
         callMultipart("replaceStickerInSet", fields, pngBytes, Duration.ofSeconds(30));
+    }
+
+    /** Explicitly pins a sticker to a 0-indexed position within its own set. */
+    public void setStickerPositionInSet(String stickerFileId, int position) {
+        Map<String, Object> params = Map.of(
+                "sticker", stickerFileId,
+                "position", position
+        );
+        call("setStickerPositionInSet", params, Duration.ofSeconds(15));
     }
 
     private String inputStickerJson(List<String> emojiList) {
