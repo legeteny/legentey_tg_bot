@@ -48,9 +48,13 @@ public class StickerService {
 
     /** Renders the quoted message and adds it to chatId's sticker pack. */
     public void createQuote(long chatId, long ownerUserId, JsonNode quotedMessage, String emoji) {
+        String text = quotedText(quotedMessage);
+        if (text.isBlank()) {
+            client.sendMessage(chatId, "⚠️ В этом сообщении нет текста — цитировать нечего.", null, null);
+            return;
+        }
         JsonNode from = buildFromNode(resolveAuthor(quotedMessage));
-        String text = quotedMessage.path("text").asText("");
-        JsonNode entities = quotedMessage.path("entities");
+        JsonNode entities = quotedEntities(quotedMessage);
 
         byte[] png;
         try {
@@ -63,6 +67,22 @@ public class StickerService {
 
         String chatTitle = quotedMessage.path("chat").path("title").asText("");
         addToPack(chatId, ownerUserId, png, emoji, chatTitle);
+    }
+
+    /**
+     * Telegram carries a media message's text in "caption", not "text", so a
+     * photo with a caption looks textless unless both fields are checked.
+     */
+    private static String quotedText(JsonNode quotedMessage) {
+        String text = quotedMessage.path("text").asText("");
+        return text.isEmpty() ? quotedMessage.path("caption").asText("") : text;
+    }
+
+    /** Entities must come from the same field the text did. */
+    private static JsonNode quotedEntities(JsonNode quotedMessage) {
+        return quotedMessage.path("text").asText("").isEmpty()
+                ? quotedMessage.path("caption_entities")
+                : quotedMessage.path("entities");
     }
 
     /**
