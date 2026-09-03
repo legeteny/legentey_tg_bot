@@ -53,7 +53,9 @@ public final class MentionFormatter {
 
     private static String mentionToken(ChatUser user) {
         if (user.username() != null && !user.username().isBlank()) {
-            return "@" + user.username();
+            // Usernames may contain "_", which MarkdownV2 reads as an italic marker: an odd
+            // number of them across the message makes Telegram reject the whole send.
+            return "@" + escape(user.username());
         }
         return "[" + escape(user.displayName()) + "](tg://user?id=" + user.userId() + ")";
     }
