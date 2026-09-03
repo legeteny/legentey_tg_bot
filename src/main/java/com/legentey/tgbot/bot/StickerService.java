@@ -50,7 +50,7 @@ public class StickerService {
     public void createQuote(long chatId, long ownerUserId, JsonNode quotedMessage, String emoji) {
         String text = quotedText(quotedMessage);
         if (text.isBlank()) {
-            client.sendMessage(chatId, "⚠️ В этом сообщении нет текста — цитировать нечего.", null, null);
+            client.sendMessage(chatId, "В этом сообщении нет текста — цитировать нечего.", null, null);
             return;
         }
         JsonNode from = buildFromNode(resolveAuthor(quotedMessage));
@@ -61,7 +61,7 @@ public class StickerService {
             png = StickerImage.normalizeForSticker(quoteApiClient.generateQuotePng(from, text, entities));
         } catch (RuntimeException e) {
             log.warn("quote-api failed to render a quote for chat {}: {}", chatId, e.getMessage());
-            client.sendMessage(chatId, "⚠️ Не получилось сгенерировать стикер.", null, null);
+            client.sendMessage(chatId, "Не получилось сгенерировать стикер.", null, null);
             return;
         }
 
@@ -163,7 +163,7 @@ public class StickerService {
             }
         } catch (TelegramApiException e) {
             log.warn("Failed to update sticker pack for chat {}: {}", chatId, e.getMessage());
-            client.sendMessage(chatId, "⚠️ Не получилось добавить стикер: " + e.getMessage(), null, null);
+            client.sendMessage(chatId, "Не получилось добавить стикер: " + e.getMessage(), null, null);
         }
     }
 
@@ -176,7 +176,7 @@ public class StickerService {
     }
 
     private void sendAddedConfirmation(long chatId, String packName) {
-        client.sendMessage(chatId, "Цитата добавлена в аналлы: t.me/addstickers/" + packName, null, null);
+        client.sendMessage(chatId, "Цитата добавлена: t.me/addstickers/" + packName, null, null);
     }
 
     private static String truncate(String text, int maxLength) {
