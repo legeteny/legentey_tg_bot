@@ -27,14 +27,15 @@ public class QuoteApiClient {
      * square — and since the render is downscaled to a 512px sticker by its
      * longer side, a squarer card survives that downscale with larger text.
      */
-    private static final int RENDER_WIDTH = 215;
+    private static final int RENDER_WIDTH = 280;
 
     /**
      * quote-api treats "height" purely as a truncation budget: text overflowing
-     * it is cut with an ellipsis. Raised in step with the narrower width
-     * (512 / 0.42) so the same amount of text still fits before being cut.
+     * it is cut with an ellipsis. Derived from the width so that narrowing the
+     * card never costs text: whatever fraction of 512 the width gives up, the
+     * height gains back.
      */
-    private static final int RENDER_HEIGHT = 1220;
+    private static final int RENDER_HEIGHT = 512 * 512 / RENDER_WIDTH;
 
     private final String baseUrl;
     private final HttpClient httpClient;
