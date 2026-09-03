@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.legentey.tgbot.Config;
 import com.legentey.tgbot.GitInfo;
 import com.legentey.tgbot.quoteapi.QuoteApiClient;
+import com.legentey.tgbot.storage.DeployStore;
 import com.legentey.tgbot.storage.StickerPackStore;
 import com.legentey.tgbot.storage.UserStore;
 import com.legentey.tgbot.telegram.TelegramApiClient;
@@ -26,6 +27,7 @@ public class BotService {
     private final TelegramApiClient client;
     private final UserStore store;
     private final StickerPackStore stickerPackStore;
+    private final DeployStore deployStore;
     private final Config config;
 
     private CommandHandler commandHandler;
@@ -33,10 +35,12 @@ public class BotService {
 
     private volatile boolean running = true;
 
-    public BotService(TelegramApiClient client, UserStore store, StickerPackStore stickerPackStore, Config config) {
+    public BotService(TelegramApiClient client, UserStore store, StickerPackStore stickerPackStore,
+                      DeployStore deployStore, Config config) {
         this.client = client;
         this.store = store;
         this.stickerPackStore = stickerPackStore;
+        this.deployStore = deployStore;
         this.config = config;
     }
 
@@ -92,10 +96,12 @@ public class BotService {
             return;
         }
         GitInfo git = GitInfo.detect();
-        String text = "🚀 Бот запущен\nКоммит: " + git.hash()
-                + (git.message().isBlank() ? "" : "\n" + git.message());
+        String text = StartupMessage.build(git, deployStore.lastAnnouncedCommit());
         try {
             client.sendMessage(config.adminChatId(), text, null, null);
+            // Only after Telegram accepted it: a failed send must leave the range
+            // unclaimed so the next startup reports it instead of skipping it.
+            deployStore.saveAnnouncedCommit(git.hash());
         } catch (TelegramApiException e) {
             log.warn("Failed to send startup notification: {}", e.getMessage());
         }

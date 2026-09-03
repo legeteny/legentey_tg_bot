@@ -12,6 +12,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           clean: false
+          # Default is a shallow (depth 1) clone, on which the commit window below
+          # would collapse to a single entry.
+          fetch-depth: 0
 
       - name: Write .env
         run: |
@@ -21,6 +24,7 @@ jobs:
           ADMIN_CHAT_ID=${{ secrets.ADMIN_CHAT_ID }}
           GIT_COMMIT=$(git rev-parse --short HEAD)
           GIT_COMMIT_MESSAGE=$(git log -1 --pretty=%s)
+          GIT_RECENT_COMMITS=$(git log -50 --pretty='%h %s' | base64 | tr -d '\n')
           EOF
 
       - name: Build and restart container
