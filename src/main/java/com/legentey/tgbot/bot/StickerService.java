@@ -176,6 +176,10 @@ public class StickerService {
             Profile effective = fillMissing(stored, base.path("id").asLong());
 
             JsonNode from = applyProfile(base, effective);
+            log.info("Rerendering sticker {} (author id={}): stored avatarFileId={}, effective avatarFileId={}, "
+                            + "from.photo={}",
+                    sticker.id(), base.path("id").asLong(), sticker.avatarFileId(), effective.avatarFileId(),
+                    from.path("photo"));
             byte[] png = StickerImage.normalizeForSticker(
                     quoteApiClient.generateQuotePng(from, sticker.text(), entities, width));
             client.replaceStickerInSet(sticker.ownerUserId(), sticker.packName(), sticker.fileId(),
