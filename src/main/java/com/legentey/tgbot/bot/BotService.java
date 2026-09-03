@@ -60,7 +60,7 @@ public class BotService {
         String botUsername = me.path("username").asText("");
         log.info("Logged in as @{} (id={})", botUsername, me.path("id").asLong());
 
-        QuoteApiClient quoteApiClient = new QuoteApiClient(config.quoteApiUrl());
+        QuoteApiClient quoteApiClient = new QuoteApiClient(config.quoteApiUrl(), config.botToken());
         this.stickerService = new StickerService(client, quoteApiClient, stickerPackStore, quoteStickerStore,
                 renderSettingsStore, botUsername);
         this.commandHandler = new CommandHandler(client, store, stickerService, config);

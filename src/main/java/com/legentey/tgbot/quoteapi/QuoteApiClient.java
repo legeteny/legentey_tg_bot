@@ -22,11 +22,21 @@ import java.time.Duration;
 public class QuoteApiClient {
 
     private final String baseUrl;
+    private final String botToken;
     private final HttpClient httpClient;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public QuoteApiClient(String baseUrl) {
+    /**
+     * @param botToken sent back to quote-api on every request so it can recognize
+     *                 these as our own bot's calls and exempt them from its
+     *                 per-IP rate limit (quote-api whitelists requests whose
+     *                 "botToken" field matches its own BOT_TOKEN — otherwise a
+     *                 batch rerender of more than ~20 stickers within under a
+     *                 minute starts getting HTTP 429'd).
+     */
+    public QuoteApiClient(String baseUrl, String botToken) {
         this.baseUrl = baseUrl;
+        this.botToken = botToken;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
@@ -61,6 +71,7 @@ public class QuoteApiClient {
         payload.putArray("messages").add(message);
         payload.put("width", width);
         payload.put("height", height);
+        payload.put("botToken", botToken);
 
         try {
             String body = mapper.writeValueAsString(payload);
