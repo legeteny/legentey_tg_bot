@@ -2,6 +2,7 @@ package com.legentey.tgbot.bot;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.legentey.tgbot.Config;
+import com.legentey.tgbot.storage.ApprovalSettingsStore;
 import com.legentey.tgbot.storage.ChatUser;
 import com.legentey.tgbot.storage.UserStore;
 import com.legentey.tgbot.telegram.TelegramApiClient;
@@ -15,14 +16,19 @@ public class CommandHandler {
     private final UserStore store;
     private final StickerService stickerService;
     private final QuoteEmojiPicker emojiPicker;
+    private final QuoteDeletionVote deletionVote;
+    private final ApprovalSettingsStore approvalSettingsStore;
     private final Config config;
 
     public CommandHandler(TelegramApiClient client, UserStore store, StickerService stickerService,
-                          QuoteEmojiPicker emojiPicker, Config config) {
+                          QuoteEmojiPicker emojiPicker, QuoteDeletionVote deletionVote,
+                          ApprovalSettingsStore approvalSettingsStore, Config config) {
         this.client = client;
         this.store = store;
         this.stickerService = stickerService;
         this.emojiPicker = emojiPicker;
+        this.deletionVote = deletionVote;
+        this.approvalSettingsStore = approvalSettingsStore;
         this.config = config;
     }
 
@@ -41,6 +47,9 @@ public class CommandHandler {
             case "all" -> handleAll(chatId, isGroup);
             case "q" -> handleQ(message, chatId, isGroup, args);
             case "q_rand" -> handleQRand(chatId, isGroup);
+            case "q_del" -> handleQDel(message, chatId, isGroup);
+            case "q_get_approve_count" -> handleQGetApproveCount(message, chatId);
+            case "q_set_approve_count" -> handleQSetApproveCount(message, chatId, args);
             case "q_rerender" -> handleQRerender(message, chatId);
             case "q_get_width" -> handleQGetWidth(message, chatId);
             case "q_set_width" -> handleQSetWidth(message, chatId, args);
@@ -96,6 +105,46 @@ public class CommandHandler {
             return;
         }
         stickerService.sendRandomQuote(chatId);
+    }
+
+    private void handleQDel(JsonNode message, long chatId, boolean isGroup) {
+        if (!isGroup) {
+            return;
+        }
+        long messageId = message.path("message_id").asLong();
+        JsonNode sticker = message.path("reply_to_message").path("sticker");
+        if (sticker.isMissingNode() || sticker.isNull()) {
+            client.sendMessage(chatId, "Ответьте командой /q_del на стикер-цитату, которую нужно удалить.",
+                    null, messageId);
+            return;
+        }
+        deletionVote.requestDeletion(chatId, message.path("from").path("id").asLong(), messageId, sticker);
+    }
+
+    /** Admin-only, hidden: reports how many others must approve a /q_del. */
+    private void handleQGetApproveCount(JsonNode message, long chatId) {
+        if (!isAdmin(message)) {
+            return;
+        }
+        client.sendMessage(chatId, "Нужно подтверждений для удаления: "
+                + approvalSettingsStore.getApproveCount(), null, null);
+    }
+
+    /** Admin-only, hidden: changes how many others must approve a /q_del. */
+    private void handleQSetApproveCount(JsonNode message, long chatId, String args) {
+        if (!isAdmin(message)) {
+            return;
+        }
+        Integer count = parseNonNegativeInt(args);
+        if (count == null) {
+            client.sendMessage(chatId, "Укажите неотрицательное число, например: /q_set_approve_count 2", null, null);
+            return;
+        }
+        approvalSettingsStore.setApproveCount(count);
+        client.sendMessage(chatId, count == 0
+                        ? "Подтверждения выключены: /q_del удаляет цитату сразу."
+                        : "Нужно подтверждений для удаления: " + count + ".",
+                null, null);
     }
 
     /**
@@ -154,6 +203,16 @@ public class CommandHandler {
         try {
             int value = Integer.parseInt(text.trim());
             return value > 0 ? value : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** Zero is meaningful here: it turns deletion approvals off entirely. */
+    private static Integer parseNonNegativeInt(String text) {
+        try {
+            int value = Integer.parseInt(text.trim());
+            return value >= 0 ? value : null;
         } catch (NumberFormatException e) {
             return null;
         }

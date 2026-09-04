@@ -188,6 +188,19 @@ public class SqliteQuoteStickerStore implements QuoteStickerStore {
         }
     }
 
+    @Override
+    public void deleteByFileId(String fileId) {
+        synchronized (lock) {
+            String sql = "DELETE FROM quote_stickers WHERE file_id = ?";
+            try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                ps.setString(1, fileId);
+                ps.executeUpdate();
+            } catch (SQLException e) {
+                log.error("Failed to delete quote sticker by file_id", e);
+            }
+        }
+    }
+
     public void close() {
         try {
             connection.close();

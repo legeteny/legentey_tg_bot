@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.legentey.tgbot.Config;
 import com.legentey.tgbot.GitInfo;
 import com.legentey.tgbot.quoteapi.QuoteApiClient;
+import com.legentey.tgbot.storage.ApprovalSettingsStore;
 import com.legentey.tgbot.storage.DeployStore;
 import com.legentey.tgbot.storage.QuoteStickerStore;
 import com.legentey.tgbot.storage.RenderSettingsStore;
@@ -24,7 +25,8 @@ public class BotService {
     private static final List<Map<String, String>> COMMANDS = List.of(
             Map.of("command", "all", "description", "Упомянуть всех известных участников чата"),
             Map.of("command", "q", "description", "Ответом на сообщение — сделать из него стикер-цитату"),
-            Map.of("command", "q_rand", "description", "Прислать случайную цитату из этого чата")
+            Map.of("command", "q_rand", "description", "Прислать случайную цитату из этого чата"),
+            Map.of("command", "q_del", "description", "Ответом на стикер-цитату — удалить её с согласия чата")
     );
 
     private static final Logger log = LoggerFactory.getLogger(BotService.class);
@@ -36,17 +38,20 @@ public class BotService {
     private final RenderSettingsStore renderSettingsStore;
     private final DeployStore deployStore;
     private final UpdateOffsetStore updateOffsetStore;
+    private final ApprovalSettingsStore approvalSettingsStore;
     private final Config config;
 
     private CommandHandler commandHandler;
     private StickerService stickerService;
     private QuoteEmojiPicker emojiPicker;
+    private QuoteDeletionVote deletionVote;
 
     private volatile boolean running = true;
 
     public BotService(TelegramApiClient client, UserStore store, StickerPackStore stickerPackStore,
                       QuoteStickerStore quoteStickerStore, RenderSettingsStore renderSettingsStore,
-                      DeployStore deployStore, UpdateOffsetStore updateOffsetStore, Config config) {
+                      DeployStore deployStore, UpdateOffsetStore updateOffsetStore,
+                      ApprovalSettingsStore approvalSettingsStore, Config config) {
         this.client = client;
         this.store = store;
         this.stickerPackStore = stickerPackStore;
@@ -54,6 +59,7 @@ public class BotService {
         this.renderSettingsStore = renderSettingsStore;
         this.deployStore = deployStore;
         this.updateOffsetStore = updateOffsetStore;
+        this.approvalSettingsStore = approvalSettingsStore;
         this.config = config;
     }
 
@@ -70,7 +76,10 @@ public class BotService {
         this.stickerService = new StickerService(client, quoteApiClient, stickerPackStore, quoteStickerStore,
                 renderSettingsStore, botUsername);
         this.emojiPicker = new QuoteEmojiPicker(client, stickerService, new PendingQuotes(), config);
-        this.commandHandler = new CommandHandler(client, store, stickerService, emojiPicker, config);
+        this.deletionVote = new QuoteDeletionVote(client, stickerService, approvalSettingsStore,
+                new PendingDeletions());
+        this.commandHandler = new CommandHandler(client, store, stickerService, emojiPicker, deletionVote,
+                approvalSettingsStore, config);
 
         try {
             client.setMyCommands(COMMANDS);
@@ -157,7 +166,12 @@ public class BotService {
     private void handleUpdate(JsonNode update) {
         JsonNode callbackQuery = update.path("callback_query");
         if (!callbackQuery.isMissingNode() && !callbackQuery.isNull()) {
-            emojiPicker.handleCallback(callbackQuery);
+            // Each handler recognizes its own callback_data, so the prefixes stay
+            // its business; the picker is last because it also clears the spinner
+            // on anything nobody claims.
+            if (!deletionVote.handleCallback(callbackQuery)) {
+                emojiPicker.handleCallback(callbackQuery);
+            }
             return;
         }
 

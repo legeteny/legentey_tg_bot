@@ -74,6 +74,47 @@ public class StickerService {
     }
 
     /**
+     * Finds a sticker in this chat's own pack by its file_unique_id and returns the
+     * pack's current file_id for it.
+     *
+     * <p>Matching goes by file_unique_id because a file_id is not stable across
+     * contexts — the one arriving on a sticker message is not necessarily the one
+     * the pack knows, and only the latter can be deleted. Empty means the sticker
+     * isn't this chat's quote, which is also what keeps /q_del off other packs.
+     */
+    public Optional<String> findInChatPack(long chatId, String fileUniqueId) {
+        if (fileUniqueId == null || fileUniqueId.isBlank()) {
+            return Optional.empty();
+        }
+        Optional<StickerPack> pack = packStore.findForChat(chatId);
+        if (pack.isEmpty()) {
+            return Optional.empty();
+        }
+        JsonNode setStickers;
+        try {
+            setStickers = client.getStickerSet(pack.get().packName()).path("stickers");
+        } catch (TelegramApiException e) {
+            if (!e.getMessage().contains("STICKERSET_INVALID")) {
+                throw e;
+            }
+            log.info("Pack {} for chat {} is gone", pack.get().packName(), chatId);
+            return Optional.empty();
+        }
+        for (JsonNode sticker : setStickers) {
+            if (fileUniqueId.equals(sticker.path("file_unique_id").asText(null))) {
+                return Optional.ofNullable(sticker.path("file_id").asText(null));
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** Removes one sticker from its pack and forgets the render inputs behind it. */
+    public void deleteQuote(String fileId) {
+        client.deleteStickerFromSet(fileId);
+        quoteStickerStore.deleteByFileId(fileId);
+    }
+
+    /**
      * Sends one random sticker from this chat's own quote pack.
      *
      * <p>The pack is read from Telegram rather than from the quote_stickers table:

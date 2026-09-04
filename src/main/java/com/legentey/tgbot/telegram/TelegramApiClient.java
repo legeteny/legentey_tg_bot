@@ -89,6 +89,17 @@ public class TelegramApiClient {
         call("answerCallbackQuery", params, Duration.ofSeconds(15));
     }
 
+    /** Swaps the inline keyboard on an existing message, leaving its text alone. */
+    public void editMessageReplyMarkup(long chatId, long messageId, Object replyMarkup) {
+        var params = new java.util.HashMap<String, Object>();
+        params.put("chat_id", chatId);
+        params.put("message_id", messageId);
+        if (replyMarkup != null) {
+            params.put("reply_markup", replyMarkup);
+        }
+        call("editMessageReplyMarkup", params, Duration.ofSeconds(15));
+    }
+
     /** Sends a sticker that already exists, by its file_id. */
     public JsonNode sendSticker(long chatId, String stickerFileId) {
         return call("sendSticker", Map.of("chat_id", chatId, "sticker", stickerFileId), Duration.ofSeconds(20));
@@ -123,6 +134,11 @@ public class TelegramApiClient {
                 "sticker", inputStickerJson(emojiList)
         );
         callMultipart("addStickerToSet", fields, pngBytes, Duration.ofSeconds(30));
+    }
+
+    /** Removes one sticker from the bot-owned set it belongs to. */
+    public void deleteStickerFromSet(String stickerFileId) {
+        call("deleteStickerFromSet", Map.of("sticker", stickerFileId), Duration.ofSeconds(20));
     }
 
     /** Full sticker set info, including each sticker's current file_id and its order in the set. */

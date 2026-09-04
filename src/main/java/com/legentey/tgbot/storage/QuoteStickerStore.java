@@ -22,4 +22,7 @@ public interface QuoteStickerStore {
 
     /** Drops a record whose sticker no longer exists in its pack (deleted by hand, pack recreated). */
     void delete(long id);
+
+    /** Drops the record for a sticker just removed from its pack, so no rerender goes looking for it. */
+    void deleteByFileId(String fileId);
 }

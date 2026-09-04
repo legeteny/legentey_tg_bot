@@ -1,6 +1,7 @@
 package com.legentey.tgbot;
 
 import com.legentey.tgbot.bot.BotService;
+import com.legentey.tgbot.storage.SqliteApprovalSettingsStore;
 import com.legentey.tgbot.storage.SqliteDeployStore;
 import com.legentey.tgbot.storage.SqliteQuoteStickerStore;
 import com.legentey.tgbot.storage.SqliteRenderSettingsStore;
@@ -24,9 +25,10 @@ public class Main {
         SqliteRenderSettingsStore renderSettingsStore = new SqliteRenderSettingsStore(config.dbPath());
         SqliteDeployStore deployStore = new SqliteDeployStore(config.dbPath());
         SqliteUpdateOffsetStore updateOffsetStore = new SqliteUpdateOffsetStore(config.dbPath());
+        SqliteApprovalSettingsStore approvalSettingsStore = new SqliteApprovalSettingsStore(config.dbPath());
         TelegramApiClient client = new TelegramApiClient(config.botToken());
         BotService botService = new BotService(client, store, stickerPackStore, quoteStickerStore,
-                renderSettingsStore, deployStore, updateOffsetStore, config);
+                renderSettingsStore, deployStore, updateOffsetStore, approvalSettingsStore, config);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("Shutting down...");
@@ -37,6 +39,7 @@ public class Main {
             renderSettingsStore.close();
             deployStore.close();
             updateOffsetStore.close();
+            approvalSettingsStore.close();
         }, "shutdown-hook"));
 
         log.info("Starting Telegram tag-all bot");
