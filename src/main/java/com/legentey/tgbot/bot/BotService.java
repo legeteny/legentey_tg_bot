@@ -29,6 +29,17 @@ public class BotService {
             Map.of("command", "q_del", "description", "Ответом на стикер-цитату — удалить её с согласия чата")
     );
 
+    /** Only ever useful to one person, so published to that person's own chat scope. */
+    private static final List<Map<String, String>> ADMIN_COMMANDS = List.of(
+            Map.of("command", "q_rerender", "description", "Перерендерить все стикеры-цитаты"),
+            Map.of("command", "q_get_width", "description", "Текущая ширина рендера"),
+            Map.of("command", "q_set_width", "description", "Задать ширину рендера"),
+            Map.of("command", "q_get_approve_count", "description", "Сколько подтверждений нужно для /q_del"),
+            Map.of("command", "q_set_approve_count", "description", "Задать число подтверждений для /q_del"),
+            Map.of("command", "q_get_approve_timeout", "description", "Таймаут голосования /q_del в секундах"),
+            Map.of("command", "q_set_approve_timeout", "description", "Задать таймаут голосования /q_del в секундах")
+    );
+
     private static final Logger log = LoggerFactory.getLogger(BotService.class);
 
     private final TelegramApiClient client;
@@ -87,6 +98,8 @@ public class BotService {
         } catch (TelegramApiException e) {
             log.warn("Failed to register command menu: {}", e.getMessage());
         }
+        clearPrivateChatCommandMenu();
+        registerAdminCommandMenu();
 
         notifyStartup();
 
@@ -116,6 +129,41 @@ public class BotService {
                 log.error("Unexpected error while polling for updates", e);
                 sleepQuietly(5000);
             }
+        }
+    }
+
+    /**
+     * Empties the menu for private chats. Every public command is group-only, so
+     * offering them one-to-one just invites taps that do nothing. The admin's own
+     * chat keeps its menu regardless: for a private chat Telegram resolves scopes
+     * as chat, then all_private_chats, then default, so the narrower one wins.
+     */
+    private void clearPrivateChatCommandMenu() {
+        try {
+            client.setMyCommands(List.of(), Map.of("type", "all_private_chats"));
+            log.info("Cleared the command menu for private chats");
+        } catch (TelegramApiException e) {
+            log.warn("Failed to clear the private chat command menu: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Publishes the hidden commands as a menu of their own, scoped to the admin's
+     * private chat with the bot, so nobody else is offered them.
+     *
+     * <p>The public commands are deliberately left out of that scope: a chat scope
+     * replaces the default menu rather than adding to it, and every public command
+     * is group-only anyway, so in a private chat they would just be dead entries.
+     */
+    private void registerAdminCommandMenu() {
+        if (config.adminChatId() == null) {
+            return;
+        }
+        try {
+            client.setMyCommands(ADMIN_COMMANDS, Map.of("type", "chat", "chat_id", config.adminChatId()));
+            log.info("Registered admin command menu ({} commands)", ADMIN_COMMANDS.size());
+        } catch (TelegramApiException e) {
+            log.warn("Failed to register admin command menu: {}", e.getMessage());
         }
     }
 

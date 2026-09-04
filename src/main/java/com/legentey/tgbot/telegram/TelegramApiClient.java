@@ -107,7 +107,21 @@ public class TelegramApiClient {
 
     /** Registers the bot's command menu (the suggestions shown when a user types "/"). */
     public void setMyCommands(List<Map<String, String>> commands) {
-        call("setMyCommands", Map.of("commands", commands), Duration.ofSeconds(15));
+        setMyCommands(commands, null);
+    }
+
+    /**
+     * scope is Telegram's BotCommandScope as a plain Map — a narrower scope overrides
+     * the default one for the chats it covers. null publishes to the default scope,
+     * which is what every chat without a more specific menu sees.
+     */
+    public void setMyCommands(List<Map<String, String>> commands, Object scope) {
+        var params = new java.util.HashMap<String, Object>();
+        params.put("commands", commands);
+        if (scope != null) {
+            params.put("scope", scope);
+        }
+        call("setMyCommands", params, Duration.ofSeconds(15));
     }
 
     /** Full chat/user info — used for fields not present on a plain message's "from" (e.g. emoji_status). */
