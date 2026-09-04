@@ -14,12 +14,15 @@ public class CommandHandler {
     private final TelegramApiClient client;
     private final UserStore store;
     private final StickerService stickerService;
+    private final QuoteEmojiPicker emojiPicker;
     private final Config config;
 
-    public CommandHandler(TelegramApiClient client, UserStore store, StickerService stickerService, Config config) {
+    public CommandHandler(TelegramApiClient client, UserStore store, StickerService stickerService,
+                          QuoteEmojiPicker emojiPicker, Config config) {
         this.client = client;
         this.store = store;
         this.stickerService = stickerService;
+        this.emojiPicker = emojiPicker;
         this.config = config;
     }
 
@@ -71,13 +74,16 @@ public class CommandHandler {
         if (config.adminChatId() == null) {
             return;
         }
+        long messageId = message.path("message_id").asLong();
         JsonNode replyTo = message.path("reply_to_message");
-        if (replyTo.isMissingNode()) {
+        if (replyTo.isMissingNode() || replyTo.isNull()) {
+            // This is how a /q tapped in Telegram's command menu arrives: sent at once, with nothing to quote.
+            client.sendMessage(chatId, "Ответьте командой /q на сообщение, из которого нужно сделать стикер.",
+                    null, messageId);
             return;
         }
-        long messageId = message.path("message_id").asLong();
         if (emoji.isBlank()) {
-            client.sendMessage(chatId, "Укажите смайл после команды, например: /q 😂", null, messageId);
+            emojiPicker.prompt(chatId, message.path("from").path("id").asLong(), messageId, replyTo);
             return;
         }
         // Sticker packs are always owned by the admin account, regardless of who calls /q.

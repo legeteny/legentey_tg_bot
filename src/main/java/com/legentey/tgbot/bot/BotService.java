@@ -21,7 +21,7 @@ public class BotService {
 
     private static final List<Map<String, String>> COMMANDS = List.of(
             Map.of("command", "all", "description", "Упомянуть всех известных участников чата"),
-            Map.of("command", "q", "description", "Ответом на сообщение и смайлом — сделать из него стикер-цитату")
+            Map.of("command", "q", "description", "Ответом на сообщение — сделать из него стикер-цитату")
     );
 
     private static final Logger log = LoggerFactory.getLogger(BotService.class);
@@ -36,6 +36,7 @@ public class BotService {
 
     private CommandHandler commandHandler;
     private StickerService stickerService;
+    private QuoteEmojiPicker emojiPicker;
 
     private volatile boolean running = true;
 
@@ -63,7 +64,8 @@ public class BotService {
         QuoteApiClient quoteApiClient = new QuoteApiClient(config.quoteApiUrl(), config.botToken());
         this.stickerService = new StickerService(client, quoteApiClient, stickerPackStore, quoteStickerStore,
                 renderSettingsStore, botUsername);
-        this.commandHandler = new CommandHandler(client, store, stickerService, config);
+        this.emojiPicker = new QuoteEmojiPicker(client, stickerService, new PendingQuotes(), config);
+        this.commandHandler = new CommandHandler(client, store, stickerService, emojiPicker, config);
 
         try {
             client.setMyCommands(COMMANDS);
@@ -116,6 +118,12 @@ public class BotService {
     }
 
     private void handleUpdate(JsonNode update) {
+        JsonNode callbackQuery = update.path("callback_query");
+        if (!callbackQuery.isMissingNode() && !callbackQuery.isNull()) {
+            emojiPicker.handleCallback(callbackQuery);
+            return;
+        }
+
         JsonNode message = update.path("message");
         if (message.isMissingNode() || message.isNull()) {
             return;
@@ -151,6 +159,9 @@ public class BotService {
 
         JsonNode textNode = message.path("text");
         if (textNode.isMissingNode() || textNode.isNull()) {
+            return;
+        }
+        if (emojiPicker.handleCustomEmojiReply(message)) {
             return;
         }
         if (!textNode.asText().startsWith("/")) {

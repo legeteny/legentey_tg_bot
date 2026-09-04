@@ -45,7 +45,7 @@ public class TelegramApiClient {
         Map<String, Object> params = Map.of(
                 "offset", offset,
                 "timeout", timeoutSeconds,
-                "allowed_updates", new String[]{"message"}
+                "allowed_updates", new String[]{"message", "callback_query"}
         );
         // Give the HTTP call some headroom over Telegram's own long-poll timeout.
         Duration httpTimeout = Duration.ofSeconds(timeoutSeconds + 15L);
@@ -53,6 +53,11 @@ public class TelegramApiClient {
     }
 
     public JsonNode sendMessage(long chatId, String text, String parseMode, Long replyToMessageId) {
+        return sendMessage(chatId, text, parseMode, replyToMessageId, null);
+    }
+
+    /** replyMarkup is a plain Map/List structure, serialized as Telegram's reply_markup JSON. */
+    public JsonNode sendMessage(long chatId, String text, String parseMode, Long replyToMessageId, Object replyMarkup) {
         var params = new java.util.HashMap<String, Object>();
         params.put("chat_id", chatId);
         params.put("text", text);
@@ -63,7 +68,25 @@ public class TelegramApiClient {
             params.put("reply_to_message_id", replyToMessageId);
             params.put("allow_sending_without_reply", true);
         }
+        if (replyMarkup != null) {
+            params.put("reply_markup", replyMarkup);
+        }
         return call("sendMessage", params, Duration.ofSeconds(20));
+    }
+
+    public void deleteMessage(long chatId, long messageId) {
+        call("deleteMessage", Map.of("chat_id", chatId, "message_id", messageId), Duration.ofSeconds(15));
+    }
+
+    /** Clears the spinner Telegram shows on a tapped inline button; text != null pops up a toast. */
+    public void answerCallbackQuery(String callbackQueryId, String text, boolean showAlert) {
+        var params = new java.util.HashMap<String, Object>();
+        params.put("callback_query_id", callbackQueryId);
+        if (text != null) {
+            params.put("text", text);
+            params.put("show_alert", showAlert);
+        }
+        call("answerCallbackQuery", params, Duration.ofSeconds(15));
     }
 
     /** Registers the bot's command menu (the suggestions shown when a user types "/"). */
