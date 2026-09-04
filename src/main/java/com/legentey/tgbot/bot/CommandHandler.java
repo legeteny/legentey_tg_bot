@@ -114,13 +114,14 @@ public class CommandHandler {
             return;
         }
         long messageId = message.path("message_id").asLong();
-        JsonNode sticker = message.path("reply_to_message").path("sticker");
+        JsonNode stickerMessage = message.path("reply_to_message");
+        JsonNode sticker = stickerMessage.path("sticker");
         if (sticker.isMissingNode() || sticker.isNull()) {
             client.sendMessage(chatId, "Ответьте командой /q_del на стикер-цитату, которую нужно удалить.",
                     null, messageId);
             return;
         }
-        deletionVote.requestDeletion(chatId, message.path("from").path("id").asLong(), messageId, sticker);
+        deletionVote.requestDeletion(chatId, message.path("from").path("id").asLong(), messageId, stickerMessage);
     }
 
     /** Admin-only, hidden: reports how many others must approve a /q_del. */

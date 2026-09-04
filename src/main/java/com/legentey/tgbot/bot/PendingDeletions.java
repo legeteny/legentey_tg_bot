@@ -25,13 +25,15 @@ class PendingDeletions {
      * changing either setting mid-vote cannot move the goalposts on a vote already
      * under way.
      */
-    record Vote(String stickerFileId, long initiatorUserId, int required, Set<Long> approvers, Instant expiresAt) {
+    record Vote(String stickerFileId, long stickerMessageId, long initiatorUserId, int required,
+                Set<Long> approvers, Instant expiresAt) {
     }
 
     private final Map<Key, Vote> votes = new ConcurrentHashMap<>();
 
-    void put(long chatId, long messageId, String stickerFileId, long initiatorUserId, int required, Duration ttl) {
-        votes.put(new Key(chatId, messageId), new Vote(stickerFileId, initiatorUserId, required,
+    void put(long chatId, long messageId, String stickerFileId, long stickerMessageId, long initiatorUserId,
+             int required, Duration ttl) {
+        votes.put(new Key(chatId, messageId), new Vote(stickerFileId, stickerMessageId, initiatorUserId, required,
                 ConcurrentHashMap.newKeySet(), Instant.now().plus(ttl)));
     }
 

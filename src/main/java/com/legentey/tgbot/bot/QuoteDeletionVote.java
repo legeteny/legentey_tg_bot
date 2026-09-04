@@ -29,8 +29,7 @@ class QuoteDeletionVote {
     private static final long SWEEP_INTERVAL_SECONDS = 30;
 
     private static final String NOT_OUR_STICKER = "Этот стикер не из цитат этого чата.";
-    private static final String VOTE_PROMPT = "Удалить эту цитату?";
-    private static final String DELETED = "Цитата удалена.";
+    private static final String DELETED = "Цитата удалена из пака.";
     private static final String DELETE_FAILED = "Не получилось удалить стикер: ";
     private static final String EXPIRED = "Голосование устарело — вызовите /q_del заново.";
     private static final String OWN_VOTE = "Нельзя подтвердить своё же удаление.";
@@ -53,10 +52,16 @@ class QuoteDeletionVote {
     /**
      * Acts on /q_del sent as a reply to a sticker: either deletes the quote outright
      * (approvals turned off) or posts the vote the deletion now waits on.
+     *
+     * <p>Everything about the outcome replies to the sticker message rather than to
+     * the command, so voters can see which quote is on the block without hunting for
+     * it. Only the "wrong sticker" complaint goes back to the caller, since that is
+     * feedback about the command, not about a quote.
      */
-    void requestDeletion(long chatId, long requesterUserId, long commandMessageId, JsonNode repliedSticker) {
+    void requestDeletion(long chatId, long requesterUserId, long commandMessageId, JsonNode stickerMessage) {
+        long stickerMessageId = stickerMessage.path("message_id").asLong();
         Optional<String> fileId = stickerService.findInChatPack(
-                chatId, repliedSticker.path("file_unique_id").asText(null));
+                chatId, stickerMessage.path("sticker").path("file_unique_id").asText(null));
         if (fileId.isEmpty()) {
             client.sendMessage(chatId, NOT_OUR_STICKER, null, commandMessageId);
             return;
@@ -64,13 +69,13 @@ class QuoteDeletionVote {
 
         int required = approvalSettings.getApproveCount();
         if (required <= 0) {
-            deleteAndReport(chatId, fileId.get(), commandMessageId);
+            deleteAndReport(chatId, fileId.get(), stickerMessageId);
             return;
         }
 
-        JsonNode sent = client.sendMessage(chatId, VOTE_PROMPT, null, commandMessageId, markup(0, required));
-        pending.put(chatId, sent.path("message_id").asLong(), fileId.get(), requesterUserId, required,
-                Duration.ofSeconds(approvalSettings.getApproveTimeoutSeconds()));
+        JsonNode sent = client.sendMessage(chatId, votePrompt(required), null, stickerMessageId, markup(0, required));
+        pending.put(chatId, sent.path("message_id").asLong(), fileId.get(), stickerMessageId, requesterUserId,
+                required, Duration.ofSeconds(approvalSettings.getApproveTimeoutSeconds()));
     }
 
     /** Counts one approval. Returns false if the callback belongs to some other keyboard. */
@@ -108,7 +113,7 @@ class QuoteDeletionVote {
         }
         pending.remove(chatId, messageId);
         deleteQuietly(chatId, messageId);
-        deleteAndReport(chatId, vote.stickerFileId(), null);
+        deleteAndReport(chatId, vote.stickerFileId(), vote.stickerMessageId());
         return true;
     }
 
@@ -147,6 +152,11 @@ class QuoteDeletionVote {
             // A throw here would kill the scheduled task for good.
             log.warn("Failed to sweep expired deletion votes", e);
         }
+    }
+
+    /** "Нужно голосов: N" rather than "N голосов" — no number/noun agreement to get wrong. */
+    private static String votePrompt(int required) {
+        return "Нажав кнопку, вы голосуете за удаление этой цитаты из пака. Нужно голосов: " + required;
     }
 
     private static Map<String, Object> markup(int approved, int required) {
