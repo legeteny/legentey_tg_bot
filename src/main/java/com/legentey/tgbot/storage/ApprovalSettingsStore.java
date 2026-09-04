@@ -10,4 +10,9 @@ public interface ApprovalSettingsStore {
     int getApproveCount();
 
     void setApproveCount(int count);
+
+    /** How long an unfinished /q_del vote stays open, in seconds. */
+    int getApproveTimeoutSeconds();
+
+    void setApproveTimeoutSeconds(int seconds);
 }

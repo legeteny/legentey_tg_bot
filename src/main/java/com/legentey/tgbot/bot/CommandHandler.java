@@ -50,6 +50,8 @@ public class CommandHandler {
             case "q_del" -> handleQDel(message, chatId, isGroup);
             case "q_get_approve_count" -> handleQGetApproveCount(message, chatId);
             case "q_set_approve_count" -> handleQSetApproveCount(message, chatId, args);
+            case "q_get_approve_timeout" -> handleQGetApproveTimeout(message, chatId);
+            case "q_set_approve_timeout" -> handleQSetApproveTimeout(message, chatId, args);
             case "q_rerender" -> handleQRerender(message, chatId);
             case "q_get_width" -> handleQGetWidth(message, chatId);
             case "q_set_width" -> handleQSetWidth(message, chatId, args);
@@ -145,6 +147,33 @@ public class CommandHandler {
                         ? "Подтверждения выключены: /q_del удаляет цитату сразу."
                         : "Нужно подтверждений для удаления: " + count + ".",
                 null, null);
+    }
+
+    /** Admin-only, hidden: reports how long a /q_del vote stays open. */
+    private void handleQGetApproveTimeout(JsonNode message, long chatId) {
+        if (!isAdmin(message)) {
+            return;
+        }
+        client.sendMessage(chatId, "Таймаут голосования: "
+                + approvalSettingsStore.getApproveTimeoutSeconds() + " сек.", null, null);
+    }
+
+    /**
+     * Admin-only, hidden: changes how long a /q_del vote stays open. Votes already
+     * under way keep the timeout they opened with.
+     */
+    private void handleQSetApproveTimeout(JsonNode message, long chatId, String args) {
+        if (!isAdmin(message)) {
+            return;
+        }
+        Integer seconds = parsePositiveInt(args);
+        if (seconds == null) {
+            client.sendMessage(chatId, "Укажите положительное число секунд, например: /q_set_approve_timeout 300",
+                    null, null);
+            return;
+        }
+        approvalSettingsStore.setApproveTimeoutSeconds(seconds);
+        client.sendMessage(chatId, "Таймаут голосования: " + seconds + " сек.", null, null);
     }
 
     /**

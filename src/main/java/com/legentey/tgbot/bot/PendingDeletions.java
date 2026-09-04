@@ -10,30 +10,29 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * The /q_del votes currently open, held in memory only: a vote lives five minutes
- * and a restart is far rarer than that, so losing one costs nothing but a repeated
+ * The /q_del votes currently open, held in memory only: a vote lives minutes, and
+ * a restart is far rarer than that, so losing one costs nothing but a repeated
  * /q_del.
  */
 class PendingDeletions {
-
-    static final Duration TTL = Duration.ofMinutes(5);
 
     /** Identifies a vote by the bot message carrying its button. */
     record Key(long chatId, long messageId) {
     }
 
     /**
-     * required is snapshotted when the vote opens, so an admin changing the setting
-     * mid-vote cannot move the goalposts on a vote already under way.
+     * Both required and expiresAt are snapshotted when the vote opens, so an admin
+     * changing either setting mid-vote cannot move the goalposts on a vote already
+     * under way.
      */
-    record Vote(String stickerFileId, long initiatorUserId, int required, Set<Long> approvers, Instant createdAt) {
+    record Vote(String stickerFileId, long initiatorUserId, int required, Set<Long> approvers, Instant expiresAt) {
     }
 
     private final Map<Key, Vote> votes = new ConcurrentHashMap<>();
 
-    void put(long chatId, long messageId, String stickerFileId, long initiatorUserId, int required) {
-        votes.put(new Key(chatId, messageId),
-                new Vote(stickerFileId, initiatorUserId, required, ConcurrentHashMap.newKeySet(), Instant.now()));
+    void put(long chatId, long messageId, String stickerFileId, long initiatorUserId, int required, Duration ttl) {
+        votes.put(new Key(chatId, messageId), new Vote(stickerFileId, initiatorUserId, required,
+                ConcurrentHashMap.newKeySet(), Instant.now().plus(ttl)));
     }
 
     Optional<Vote> peek(long chatId, long messageId) {
@@ -57,6 +56,6 @@ class PendingDeletions {
     }
 
     private static boolean isExpired(Vote vote) {
-        return vote.createdAt().plus(TTL).isBefore(Instant.now());
+        return vote.expiresAt().isBefore(Instant.now());
     }
 }

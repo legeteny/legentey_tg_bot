@@ -7,6 +7,7 @@ import com.legentey.tgbot.telegram.TelegramApiException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -68,7 +69,8 @@ class QuoteDeletionVote {
         }
 
         JsonNode sent = client.sendMessage(chatId, VOTE_PROMPT, null, commandMessageId, markup(0, required));
-        pending.put(chatId, sent.path("message_id").asLong(), fileId.get(), requesterUserId, required);
+        pending.put(chatId, sent.path("message_id").asLong(), fileId.get(), requesterUserId, required,
+                Duration.ofSeconds(approvalSettings.getApproveTimeoutSeconds()));
     }
 
     /** Counts one approval. Returns false if the callback belongs to some other keyboard. */
