@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -73,9 +74,11 @@ class QuoteDeletionVote {
             return;
         }
 
-        JsonNode sent = client.sendMessage(chatId, votePrompt(required), null, stickerMessageId, markup(0, required));
+        Duration ttl = Duration.ofSeconds(approvalSettings.getApproveTimeoutSeconds());
+        JsonNode sent = client.sendMessage(chatId, votePrompt(required), null, stickerMessageId,
+                markup(0, required, ttl));
         pending.put(chatId, sent.path("message_id").asLong(), fileId.get(), stickerMessageId, requesterUserId,
-                required, Duration.ofSeconds(approvalSettings.getApproveTimeoutSeconds()));
+                required, ttl);
     }
 
     /** Counts one approval. Returns false if the callback belongs to some other keyboard. */
@@ -108,7 +111,8 @@ class QuoteDeletionVote {
 
         int approved = vote.approvers().size();
         if (approved < vote.required()) {
-            editMarkupQuietly(chatId, messageId, markup(approved, vote.required()));
+            editMarkupQuietly(chatId, messageId, markup(approved, vote.required(),
+                    Duration.between(Instant.now(), vote.expiresAt())));
             return true;
         }
         pending.remove(chatId, messageId);
@@ -148,9 +152,24 @@ class QuoteDeletionVote {
             for (PendingDeletions.Key key : pending.removeExpired()) {
                 deleteQuietly(key.chatId(), key.messageId());
             }
+            refreshCountdowns();
         } catch (RuntimeException e) {
             // A throw here would kill the scheduled task for good.
             log.warn("Failed to sweep expired deletion votes", e);
+        }
+    }
+
+    /**
+     * Keeps the time left on each open vote's button honest between taps. The step
+     * is the sweep interval, so the countdown moves in half-minutes — plenty for the
+     * minutes-long votes this is meant for.
+     */
+    private void refreshCountdowns() {
+        Instant now = Instant.now();
+        for (PendingDeletions.Key key : pending.activeKeys()) {
+            pending.peek(key.chatId(), key.messageId()).ifPresent(vote -> editMarkupQuietly(
+                    key.chatId(), key.messageId(),
+                    markup(vote.approvers().size(), vote.required(), Duration.between(now, vote.expiresAt()))));
         }
     }
 
@@ -159,10 +178,20 @@ class QuoteDeletionVote {
         return "Нажав кнопку, вы голосуете за удаление этой цитаты из пака. Нужно голосов: " + required;
     }
 
-    private static Map<String, Object> markup(int approved, int required) {
+    private static Map<String, Object> markup(int approved, int required, Duration remaining) {
         return Map.of("inline_keyboard", List.of(List.of(Map.of(
-                "text", "Удалить (" + approved + "/" + required + ")",
+                "text", "Удалить (" + approved + "/" + required + ") · до конца " + formatRemaining(remaining),
                 "callback_data", CALLBACK_DATA))));
+    }
+
+    /**
+     * Time left in the vote, always HH:MM:SS. The timeout is an admin setting with
+     * no upper bound, so the hours field is always there rather than appearing only
+     * once it is needed — and it grows past two digits instead of wrapping.
+     */
+    private static String formatRemaining(Duration remaining) {
+        long seconds = Math.max(0, remaining.getSeconds());
+        return String.format("%02d:%02d:%02d", seconds / 3600, seconds % 3600 / 60, seconds % 60);
     }
 
     private void editMarkupQuietly(long chatId, long messageId, Map<String, Object> markup) {

@@ -46,6 +46,17 @@ class PendingDeletions {
         votes.remove(new Key(chatId, messageId));
     }
 
+    /** Keys of every vote still open, so their buttons can be kept up to date. */
+    List<Key> activeKeys() {
+        List<Key> open = new ArrayList<>();
+        for (Map.Entry<Key, Vote> entry : votes.entrySet()) {
+            if (!isExpired(entry.getValue())) {
+                open.add(entry.getKey());
+            }
+        }
+        return open;
+    }
+
     /** Drops every vote past its TTL and hands back their keys, so the caller can clean up the messages. */
     List<Key> removeExpired() {
         List<Key> expired = new ArrayList<>();
