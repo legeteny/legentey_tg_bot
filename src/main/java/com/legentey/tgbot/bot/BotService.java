@@ -23,7 +23,8 @@ public class BotService {
 
     private static final List<Map<String, String>> COMMANDS = List.of(
             Map.of("command", "all", "description", "Упомянуть всех известных участников чата"),
-            Map.of("command", "q", "description", "Ответом на сообщение — сделать из него стикер-цитату")
+            Map.of("command", "q", "description", "Ответом на сообщение — сделать из него стикер-цитату"),
+            Map.of("command", "q_rand", "description", "Прислать случайную цитату из этого чата")
     );
 
     private static final Logger log = LoggerFactory.getLogger(BotService.class);

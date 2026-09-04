@@ -40,6 +40,7 @@ public class CommandHandler {
         switch (command) {
             case "all" -> handleAll(chatId, isGroup);
             case "q" -> handleQ(message, chatId, isGroup, args);
+            case "q_rand" -> handleQRand(chatId, isGroup);
             case "q_rerender" -> handleQRerender(message, chatId);
             case "q_get_width" -> handleQGetWidth(message, chatId);
             case "q_set_width" -> handleQSetWidth(message, chatId, args);
@@ -88,6 +89,13 @@ public class CommandHandler {
         }
         // Sticker packs are always owned by the admin account, regardless of who calls /q.
         stickerService.createQuote(chatId, config.adminChatId(), replyTo, emoji);
+    }
+
+    private void handleQRand(long chatId, boolean isGroup) {
+        if (!isGroup) {
+            return;
+        }
+        stickerService.sendRandomQuote(chatId);
     }
 
     /**

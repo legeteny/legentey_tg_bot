@@ -89,6 +89,11 @@ public class TelegramApiClient {
         call("answerCallbackQuery", params, Duration.ofSeconds(15));
     }
 
+    /** Sends a sticker that already exists, by its file_id. */
+    public JsonNode sendSticker(long chatId, String stickerFileId) {
+        return call("sendSticker", Map.of("chat_id", chatId, "sticker", stickerFileId), Duration.ofSeconds(20));
+    }
+
     /** Registers the bot's command menu (the suggestions shown when a user types "/"). */
     public void setMyCommands(List<Map<String, String>> commands) {
         call("setMyCommands", Map.of("commands", commands), Duration.ofSeconds(15));
