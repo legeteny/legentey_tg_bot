@@ -8,6 +8,7 @@ import com.legentey.tgbot.storage.DeployStore;
 import com.legentey.tgbot.storage.QuoteStickerStore;
 import com.legentey.tgbot.storage.RenderSettingsStore;
 import com.legentey.tgbot.storage.StickerPackStore;
+import com.legentey.tgbot.storage.UpdateOffsetStore;
 import com.legentey.tgbot.storage.UserStore;
 import com.legentey.tgbot.telegram.TelegramApiClient;
 import com.legentey.tgbot.telegram.TelegramApiException;
@@ -16,6 +17,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class BotService {
 
@@ -32,6 +34,7 @@ public class BotService {
     private final QuoteStickerStore quoteStickerStore;
     private final RenderSettingsStore renderSettingsStore;
     private final DeployStore deployStore;
+    private final UpdateOffsetStore updateOffsetStore;
     private final Config config;
 
     private CommandHandler commandHandler;
@@ -42,13 +45,14 @@ public class BotService {
 
     public BotService(TelegramApiClient client, UserStore store, StickerPackStore stickerPackStore,
                       QuoteStickerStore quoteStickerStore, RenderSettingsStore renderSettingsStore,
-                      DeployStore deployStore, Config config) {
+                      DeployStore deployStore, UpdateOffsetStore updateOffsetStore, Config config) {
         this.client = client;
         this.store = store;
         this.stickerPackStore = stickerPackStore;
         this.quoteStickerStore = quoteStickerStore;
         this.renderSettingsStore = renderSettingsStore;
         this.deployStore = deployStore;
+        this.updateOffsetStore = updateOffsetStore;
         this.config = config;
     }
 
@@ -76,16 +80,21 @@ public class BotService {
 
         notifyStartup();
 
-        long offset = 0;
+        long offset = resolveStartOffset();
         while (running) {
             try {
                 JsonNode updates = client.getUpdates(offset, config.getUpdatesTimeoutSeconds());
                 for (JsonNode update : updates) {
-                    offset = update.path("update_id").asLong() + 1;
+                    long updateId = update.path("update_id").asLong();
+                    offset = updateId + 1;
+                    // Claim the update before running it. Telegram only drops an update once
+                    // getUpdates is called with a higher offset, so without this a crash between
+                    // creating a sticker and the next poll makes the restarted bot create it again.
+                    updateOffsetStore.saveOffset(offset);
                     try {
                         handleUpdate(update);
                     } catch (Exception e) {
-                        log.error("Failed to handle update {}", update.path("update_id").asLong(), e);
+                        log.error("Failed to handle update {}", updateId, e);
                     }
                 }
             } catch (TelegramApiException e) {
@@ -98,6 +107,33 @@ public class BotService {
                 sleepQuietly(5000);
             }
         }
+    }
+
+    /**
+     * Picks up where the previous run left off. With nothing stored — a first run, or
+     * the first run on a build that has this store — Telegram's backlog can still hold
+     * up to 24 hours of unconfirmed updates that an earlier build already acted on, so
+     * it is dropped rather than replayed: getUpdates(-1) returns only the newest one.
+     */
+    private long resolveStartOffset() {
+        Optional<Long> stored = updateOffsetStore.lastOffset();
+        if (stored.isPresent()) {
+            log.info("Resuming at update offset {}", stored.get());
+            return stored.get();
+        }
+        long offset = 0;
+        try {
+            JsonNode newest = client.getUpdates(-1, 0);
+            if (newest.isArray() && !newest.isEmpty()) {
+                offset = newest.get(newest.size() - 1).path("update_id").asLong() + 1;
+            }
+        } catch (TelegramApiException e) {
+            log.warn("Could not read the pending update backlog: {}", e.getMessage());
+            return offset;
+        }
+        updateOffsetStore.saveOffset(offset);
+        log.info("No stored update offset; dropped the pending backlog and starting at {}", offset);
+        return offset;
     }
 
     private void notifyStartup() {
