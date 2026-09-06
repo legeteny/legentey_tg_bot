@@ -1,6 +1,11 @@
 package com.legentey.tgbot.bot;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
@@ -8,6 +13,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.Iterator;
 
 /**
  * Telegram requires a static sticker's PNG to have its longer side at exactly
@@ -18,6 +24,8 @@ import java.io.UncheckedIOException;
  */
 final class StickerImage {
 
+    private static final Logger log = LoggerFactory.getLogger(StickerImage.class);
+
     private static final int STICKER_SIZE = 512;
 
     private StickerImage() {
@@ -25,12 +33,7 @@ final class StickerImage {
 
     static byte[] normalizeForSticker(byte[] imageBytes) {
         try {
-            BufferedImage original = ImageIO.read(new ByteArrayInputStream(imageBytes));
-            if (original == null) {
-                // ImageIO.read returns null (not an exception) when no registered reader
-                // recognizes the bytes — a corrupt file, or a genuinely unsupported format.
-                throw new IOException("no ImageIO reader could decode this file");
-            }
+            BufferedImage original = decode(imageBytes);
             int width = original.getWidth();
             int height = original.getHeight();
             int longerSide = Math.max(width, height);
@@ -39,10 +42,20 @@ final class StickerImage {
             // returning imageBytes verbatim here would upload a non-PNG source (e.g. WEBP) as-is
             // under a PNG filename/content-type, which Telegram then rejects as bad PNG dimensions.
             BufferedImage toEncode = original;
+            int newWidth = width;
+            int newHeight = height;
             if (longerSide != STICKER_SIZE) {
                 double scale = (double) STICKER_SIZE / longerSide;
-                int newWidth = Math.max(1, (int) Math.round(width * scale));
-                int newHeight = Math.max(1, (int) Math.round(height * scale));
+                newWidth = Math.min(STICKER_SIZE, Math.max(1, (int) Math.round(width * scale)));
+                newHeight = Math.min(STICKER_SIZE, Math.max(1, (int) Math.round(height * scale)));
+                // Whichever side started as the longer one must land on exactly 512 — clamping
+                // above protects the *other* side from a rounding overshoot, and this restores
+                // the longer side in case clamping (or rounding) nudged it off target.
+                if (width >= height) {
+                    newWidth = STICKER_SIZE;
+                } else {
+                    newHeight = STICKER_SIZE;
+                }
 
                 BufferedImage resized = new BufferedImage(newWidth, newHeight, BufferedImage.TYPE_INT_ARGB);
                 Graphics2D g = resized.createGraphics();
@@ -52,12 +65,41 @@ final class StickerImage {
                 g.dispose();
                 toEncode = resized;
             }
+            log.info("Sticker source decoded as {}x{}, encoding as {}x{}", width, height, newWidth, newHeight);
 
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ImageIO.write(toEncode, "png", out);
             return out.toByteArray();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * Decodes via the first ImageIO reader that claims the bytes, logging which reader
+     * that was — the JDK ships no WEBP reader on its own, so this is how the imageio-webp
+     * dependency's plugin is confirmed to actually be the one used, versus e.g. a stray
+     * false-positive match from an unrelated built-in reader.
+     */
+    private static BufferedImage decode(byte[] imageBytes) throws IOException {
+        try (ImageInputStream iis = ImageIO.createImageInputStream(new ByteArrayInputStream(imageBytes))) {
+            if (iis == null) {
+                throw new IOException("ImageIO could not open an input stream for this file");
+            }
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(iis);
+            if (!readers.hasNext()) {
+                // No registered reader recognizes the bytes — a corrupt file, or a genuinely
+                // unsupported format (e.g. the imageio-webp plugin isn't actually on the classpath).
+                throw new IOException("no ImageIO reader recognizes this file");
+            }
+            ImageReader reader = readers.next();
+            log.info("Decoding sticker source with {}", reader.getClass().getName());
+            try {
+                reader.setInput(iis);
+                return reader.read(0);
+            } finally {
+                reader.dispose();
+            }
         }
     }
 }
