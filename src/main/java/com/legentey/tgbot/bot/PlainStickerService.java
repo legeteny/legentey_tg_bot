@@ -26,12 +26,14 @@ import java.util.Optional;
  *     <li>a reply to an existing (static) sticker — its file_id already lives on
  *     Telegram's servers, so it's passed straight through to the sticker-set
  *     methods with no download at all;</li>
- *     <li>a reply to a plain picture — a compressed "photo" (always JPEG) or a
- *     "document" with an image/png or image/webp MIME type — which has to be
- *     downloaded and turned into an actual sticker upload. All three decode and
- *     resize the same way, through {@link StickerImage#normalizeForSticker}
- *     ({@code ImageIO}, with the {@code imageio-webp} dependency registering a
- *     WEBP reader the JDK doesn't ship on its own), and are re-encoded as PNG.</li>
+ *     <li>a reply to a plain picture sent as a "document" with an image/png or
+ *     image/webp MIME type — deliberately not a compressed "photo" (Telegram
+ *     always re-encodes those as JPEG, which isn't one of the two accepted
+ *     formats) — which has to be downloaded and turned into an actual sticker
+ *     upload. Both decode and resize the same way, through
+ *     {@link StickerImage#normalizeForSticker} ({@code ImageIO}, with the
+ *     {@code imageio-webp} dependency registering a WEBP reader the JDK doesn't
+ *     ship on its own), and are re-encoded as PNG.</li>
  * </ul>
  */
 public class PlainStickerService {
@@ -155,13 +157,6 @@ public class PlainStickerService {
             return Upload.ofFileId(fileId);
         }
 
-        JsonNode photo = message.path("photo");
-        if (photo.isArray() && !photo.isEmpty()) {
-            // Telegram sends several sizes of the same photo; the last is the largest.
-            String fileId = photo.get(photo.size() - 1).path("file_id").asText(null);
-            return Upload.ofBytes(downloadAndNormalize(fileId), "sticker.png", "image/png");
-        }
-
         JsonNode document = message.path("document");
         if (!document.isMissingNode() && !document.isNull()) {
             String mimeType = document.path("mime_type").asText("");
@@ -174,10 +169,11 @@ public class PlainStickerService {
             };
         }
 
-        throw new UnsupportedSourceException("Ответьте на стикер или картинку (PNG/WEBP).");
+        throw new UnsupportedSourceException(
+                "Ответьте на стикер или на файл с картинкой (PNG/WEBP, отправленной именно как файл).");
     }
 
-    /** JPEG (Telegram photos), PNG and WEBP all decode fine via ImageIO, so all three get resized to fit. */
+    /** PNG and WEBP both decode fine via ImageIO (WEBP thanks to the imageio-webp dependency). */
     private byte[] downloadAndNormalize(String fileId) {
         return StickerImage.normalizeForSticker(downloadRaw(fileId));
     }

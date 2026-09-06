@@ -227,7 +227,8 @@ public class CommandHandler {
             // Whether the source itself is actually usable (right format, right size) is checked later, once an
             // emoji is known — same as /q defers "was there any text to quote" until stickerService.createQuote.
             client.sendMessage(chatId,
-                    "Ответьте командой /s на стикер или картинку (PNG/WEBP), которую нужно добавить в стикерпак чата.",
+                    "Ответьте командой /s на стикер или на файл с картинкой (PNG/WEBP, отправленной именно как файл, "
+                            + "не сжатым фото), которую нужно добавить в стикерпак чата.",
                     null, messageId);
             return;
         }
@@ -243,10 +244,6 @@ public class CommandHandler {
     private static boolean hasStickerSource(JsonNode message) {
         JsonNode sticker = message.path("sticker");
         if (!sticker.isMissingNode() && !sticker.isNull()) {
-            return true;
-        }
-        JsonNode photo = message.path("photo");
-        if (photo.isArray() && !photo.isEmpty()) {
             return true;
         }
         JsonNode document = message.path("document");
