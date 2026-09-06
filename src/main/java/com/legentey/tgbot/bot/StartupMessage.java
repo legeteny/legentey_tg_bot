@@ -41,7 +41,7 @@ final class StartupMessage {
     }
 
     private static String currentCommit(String header, GitInfo git) {
-        return header + "\nКоммит: " + git.hash()
+        return header + "\n\nПоследний коммит: " + git.hash()
                 + (git.message().isBlank() ? "" : "\n" + git.message());
     }
 
@@ -50,7 +50,7 @@ final class StartupMessage {
                 .append(commits.size())
                 .append("):");
         for (GitInfo.Commit commit : commits.subList(0, Math.min(commits.size(), MAX_LISTED))) {
-            sb.append("\n").append(commit.hash());
+            sb.append("\n").append("[").append(commit.hash()).append("]");
             if (!commit.subject().isBlank()) {
                 sb.append(" ").append(commit.subject());
             }
