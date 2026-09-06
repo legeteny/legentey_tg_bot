@@ -4,6 +4,7 @@ import com.legentey.tgbot.bot.BotService;
 import com.legentey.tgbot.storage.SqliteApprovalSettingsStore;
 import com.legentey.tgbot.storage.SqliteDeployStore;
 import com.legentey.tgbot.storage.SqliteQuoteStickerStore;
+import com.legentey.tgbot.storage.SqliteRegularStickerPackStore;
 import com.legentey.tgbot.storage.SqliteRenderSettingsStore;
 import com.legentey.tgbot.storage.SqliteStickerPackStore;
 import com.legentey.tgbot.storage.SqliteUpdateOffsetStore;
@@ -25,10 +26,15 @@ public class Main {
         SqliteRenderSettingsStore renderSettingsStore = new SqliteRenderSettingsStore(config.dbPath());
         SqliteDeployStore deployStore = new SqliteDeployStore(config.dbPath());
         SqliteUpdateOffsetStore updateOffsetStore = new SqliteUpdateOffsetStore(config.dbPath());
-        SqliteApprovalSettingsStore approvalSettingsStore = new SqliteApprovalSettingsStore(config.dbPath());
+        SqliteApprovalSettingsStore approvalSettingsStore =
+                new SqliteApprovalSettingsStore(config.dbPath(), "approval_settings");
+        SqliteRegularStickerPackStore regularStickerPackStore = new SqliteRegularStickerPackStore(config.dbPath());
+        SqliteApprovalSettingsStore stickerApprovalSettingsStore =
+                new SqliteApprovalSettingsStore(config.dbPath(), "sticker_approval_settings");
         TelegramApiClient client = new TelegramApiClient(config.botToken());
         BotService botService = new BotService(client, store, stickerPackStore, quoteStickerStore,
-                renderSettingsStore, deployStore, updateOffsetStore, approvalSettingsStore, config);
+                renderSettingsStore, deployStore, updateOffsetStore, approvalSettingsStore, regularStickerPackStore,
+                stickerApprovalSettingsStore, config);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("Shutting down...");
@@ -40,6 +46,8 @@ public class Main {
             deployStore.close();
             updateOffsetStore.close();
             approvalSettingsStore.close();
+            regularStickerPackStore.close();
+            stickerApprovalSettingsStore.close();
         }, "shutdown-hook"));
 
         log.info("Starting Telegram tag-all bot");

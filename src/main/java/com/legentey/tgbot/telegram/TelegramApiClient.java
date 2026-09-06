@@ -186,6 +186,44 @@ public class TelegramApiClient {
         call("setStickerPositionInSet", params, Duration.ofSeconds(15));
     }
 
+    /**
+     * Creates a brand new sticker set of the given format (static/animated/video),
+     * seeded with a sticker that already exists on Telegram's servers — no file
+     * upload needed, so this is a plain JSON call rather than multipart.
+     */
+    public void createNewStickerSetFromFileId(long userId, String name, String title, String fileId, String format,
+                                               List<String> emojiList) {
+        Map<String, Object> params = Map.of(
+                "user_id", userId,
+                "name", name,
+                "title", title,
+                "stickers", List.of(fileIdInputSticker(fileId, format, emojiList))
+        );
+        call("createNewStickerSet", params, Duration.ofSeconds(30));
+    }
+
+    /**
+     * Adds one more sticker — already existing on Telegram's servers — to a set
+     * previously created by this same bot.
+     */
+    public void addStickerToSetFromFileId(long userId, String name, String fileId, String format,
+                                           List<String> emojiList) {
+        Map<String, Object> params = Map.of(
+                "user_id", userId,
+                "name", name,
+                "sticker", fileIdInputSticker(fileId, format, emojiList)
+        );
+        call("addStickerToSet", params, Duration.ofSeconds(30));
+    }
+
+    private static Map<String, Object> fileIdInputSticker(String fileId, String format, List<String> emojiList) {
+        return Map.of(
+                "sticker", fileId,
+                "format", format,
+                "emoji_list", emojiList
+        );
+    }
+
     private String inputStickerJson(List<String> emojiList) {
         try {
             return mapper.writeValueAsString(Map.of(

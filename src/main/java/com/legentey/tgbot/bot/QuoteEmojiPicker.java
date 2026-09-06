@@ -44,10 +44,10 @@ class QuoteEmojiPicker {
 
     private final TelegramApiClient client;
     private final StickerService stickerService;
-    private final PendingQuotes pending;
+    private final PendingEmojiPrompt pending;
     private final Config config;
 
-    QuoteEmojiPicker(TelegramApiClient client, StickerService stickerService, PendingQuotes pending, Config config) {
+    QuoteEmojiPicker(TelegramApiClient client, StickerService stickerService, PendingEmojiPrompt pending, Config config) {
         this.client = client;
         this.stickerService = stickerService;
         this.pending = pending;
@@ -74,7 +74,7 @@ class QuoteEmojiPicker {
         long promptMessageId = promptMessage.path("message_id").asLong();
         long userId = callbackQuery.path("from").path("id").asLong();
 
-        Optional<PendingQuotes.Pending> found = pending.peek(chatId, promptMessageId);
+        Optional<PendingEmojiPrompt.Pending> found = pending.peek(chatId, promptMessageId);
         if (found.isEmpty()) {
             client.answerCallbackQuery(callbackId, EXPIRED, false);
             deleteQuietly(chatId, promptMessageId);
@@ -93,7 +93,7 @@ class QuoteEmojiPicker {
             return;
         }
         // Sticker packs are always owned by the admin account, regardless of who tapped.
-        stickerService.createQuote(chatId, config.adminChatId(), found.get().quotedMessage(),
+        stickerService.createQuote(chatId, config.adminChatId(), found.get().targetMessage(),
                 data.substring(CALLBACK_PREFIX.length()));
     }
 
@@ -111,20 +111,20 @@ class QuoteEmojiPicker {
         }
         long chatId = message.path("chat").path("id").asLong();
         long promptMessageId = replyTo.path("message_id").asLong();
-        Optional<PendingQuotes.Pending> found = pending.peek(chatId, promptMessageId);
+        Optional<PendingEmojiPrompt.Pending> found = pending.peek(chatId, promptMessageId);
         if (found.isEmpty() || found.get().requesterUserId() != message.path("from").path("id").asLong()) {
             return false;
         }
 
         String emoji = message.path("text").asText("").trim();
-        if (!isPlausibleEmoji(emoji)) {
+        if (!EmojiValidation.isPlausibleEmoji(emoji)) {
             // Keep the entry alive so the user can simply reply again.
             client.sendMessage(chatId, NOT_AN_EMOJI, null, message.path("message_id").asLong());
             return true;
         }
         pending.remove(chatId, promptMessageId);
         deleteQuietly(chatId, promptMessageId);
-        stickerService.createQuote(chatId, config.adminChatId(), found.get().quotedMessage(), emoji);
+        stickerService.createQuote(chatId, config.adminChatId(), found.get().targetMessage(), emoji);
         return true;
     }
 
@@ -133,7 +133,7 @@ class QuoteEmojiPicker {
      * it at that one user — otherwise every member of the group would get their
      * input box hijacked.
      */
-    private void askForCustomEmoji(long chatId, PendingQuotes.Pending found) {
+    private void askForCustomEmoji(long chatId, PendingEmojiPrompt.Pending found) {
         JsonNode sent = client.sendMessage(chatId, CUSTOM_PROMPT, null, found.commandMessageId(),
                 Map.of("force_reply", true, "selective", true, "input_field_placeholder", "Смайл"));
         pending.put(chatId, sent.path("message_id").asLong(), found);
@@ -151,28 +151,6 @@ class QuoteEmojiPicker {
         }
         rows.add(List.of(Map.of("text", CUSTOM_BUTTON, "callback_data", CUSTOM_CALLBACK)));
         return Map.of("inline_keyboard", rows);
-    }
-
-    /**
-     * addStickerToSet rejects an emoji_list holding anything but emoji, so the
-     * obvious non-emoji is caught here instead of surfacing as an API error.
-     */
-    private static boolean isPlausibleEmoji(String text) {
-        if (text.isEmpty() || text.length() > 16) {
-            return false;
-        }
-        boolean hasSymbol = false;
-        for (int i = 0; i < text.length(); ) {
-            int codePoint = text.codePointAt(i);
-            if (codePoint < 0x80 || Character.isWhitespace(codePoint)) {
-                return false;
-            }
-            if (codePoint >= 0x2000) {
-                hasSymbol = true;
-            }
-            i += Character.charCount(codePoint);
-        }
-        return hasSymbol;
     }
 
     private void deleteQuietly(long chatId, long messageId) {

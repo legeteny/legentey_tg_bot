@@ -21,8 +21,11 @@ public class SqliteApprovalSettingsStore implements ApprovalSettingsStore {
 
     private final Connection connection;
     private final Object lock = new Object();
+    /** Which feature's approval settings this instance holds — /q_del and /s_del each get their own table/row. */
+    private final String table;
 
-    public SqliteApprovalSettingsStore(String dbPath) {
+    public SqliteApprovalSettingsStore(String dbPath, String table) {
+        this.table = table;
         try {
             Class.forName("org.sqlite.JDBC");
             this.connection = DriverManager.getConnection("jdbc:sqlite:" + dbPath);
@@ -35,12 +38,12 @@ public class SqliteApprovalSettingsStore implements ApprovalSettingsStore {
     private void initSchema() throws SQLException {
         try (var st = connection.createStatement()) {
             st.execute("""
-                    CREATE TABLE IF NOT EXISTS approval_settings (
+                    CREATE TABLE IF NOT EXISTS %s (
                         id INTEGER PRIMARY KEY CHECK (id = 1),
                         approve_count INTEGER NOT NULL
                     )
-                    """);
-            st.execute("INSERT OR IGNORE INTO approval_settings (id, approve_count) VALUES (1, "
+                    """.formatted(table));
+            st.execute("INSERT OR IGNORE INTO " + table + " (id, approve_count) VALUES (1, "
                     + DEFAULT_APPROVE_COUNT + ")");
             // A row written before this column existed keeps the old hardcoded timeout.
             addColumnIfMissing(st, "approve_timeout_seconds", "INTEGER NOT NULL DEFAULT " + DEFAULT_TIMEOUT_SECONDS);
@@ -49,7 +52,7 @@ public class SqliteApprovalSettingsStore implements ApprovalSettingsStore {
 
     private void addColumnIfMissing(Statement st, String column, String type) {
         try {
-            st.execute("ALTER TABLE approval_settings ADD COLUMN " + column + " " + type);
+            st.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + type);
         } catch (SQLException e) {
             // Column already exists (either from a prior run's ALTER, or nothing to migrate) — fine.
         }
@@ -58,7 +61,7 @@ public class SqliteApprovalSettingsStore implements ApprovalSettingsStore {
     @Override
     public int getApproveCount() {
         synchronized (lock) {
-            String sql = "SELECT approve_count FROM approval_settings WHERE id = 1";
+            String sql = "SELECT approve_count FROM " + table + " WHERE id = 1";
             try (PreparedStatement ps = connection.prepareStatement(sql);
                  ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
@@ -74,7 +77,7 @@ public class SqliteApprovalSettingsStore implements ApprovalSettingsStore {
     @Override
     public void setApproveCount(int count) {
         synchronized (lock) {
-            String sql = "UPDATE approval_settings SET approve_count = ? WHERE id = 1";
+            String sql = "UPDATE " + table + " SET approve_count = ? WHERE id = 1";
             try (PreparedStatement ps = connection.prepareStatement(sql)) {
                 ps.setInt(1, count);
                 ps.executeUpdate();
@@ -87,7 +90,7 @@ public class SqliteApprovalSettingsStore implements ApprovalSettingsStore {
     @Override
     public int getApproveTimeoutSeconds() {
         synchronized (lock) {
-            String sql = "SELECT approve_timeout_seconds FROM approval_settings WHERE id = 1";
+            String sql = "SELECT approve_timeout_seconds FROM " + table + " WHERE id = 1";
             try (PreparedStatement ps = connection.prepareStatement(sql);
                  ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
@@ -103,7 +106,7 @@ public class SqliteApprovalSettingsStore implements ApprovalSettingsStore {
     @Override
     public void setApproveTimeoutSeconds(int seconds) {
         synchronized (lock) {
-            String sql = "UPDATE approval_settings SET approve_timeout_seconds = ? WHERE id = 1";
+            String sql = "UPDATE " + table + " SET approve_timeout_seconds = ? WHERE id = 1";
             try (PreparedStatement ps = connection.prepareStatement(sql)) {
                 ps.setInt(1, seconds);
                 ps.executeUpdate();
