@@ -65,7 +65,7 @@ final class StickerImage {
                 g.dispose();
                 toEncode = resized;
             }
-            log.info("Sticker source decoded as {}x{}, encoding as {}x{}", width, height, newWidth, newHeight);
+            log.debug("Sticker source decoded as {}x{}, encoding as {}x{}", width, height, newWidth, newHeight);
 
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ImageIO.write(toEncode, "png", out);
@@ -93,7 +93,7 @@ final class StickerImage {
                 throw new IOException("no ImageIO reader recognizes this file");
             }
             ImageReader reader = readers.next();
-            log.info("Decoding sticker source with {}", reader.getClass().getName());
+            log.debug("Decoding sticker source with {}", reader.getClass().getName());
             try {
                 reader.setInput(iis);
                 return reader.read(0);
