@@ -20,24 +20,13 @@ public class SqliteDeployStore implements DeployStore {
     private final Connection connection;
     private final Object lock = new Object();
 
+    /** Schema (the deploy_state table) is created by Flyway — see {@link DatabaseMigrator}. */
     public SqliteDeployStore(String dbPath) {
         try {
             Class.forName("org.sqlite.JDBC");
             this.connection = DriverManager.getConnection("jdbc:sqlite:" + dbPath);
-            initSchema();
         } catch (ClassNotFoundException | SQLException e) {
             throw new RuntimeException("Failed to initialize SQLite deploy state storage at " + dbPath, e);
-        }
-    }
-
-    private void initSchema() throws SQLException {
-        try (var st = connection.createStatement()) {
-            st.execute("""
-                    CREATE TABLE IF NOT EXISTS deploy_state (
-                        id INTEGER PRIMARY KEY CHECK (id = 0),
-                        last_commit TEXT NOT NULL
-                    )
-                    """);
         }
     }
 

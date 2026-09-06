@@ -1,6 +1,7 @@
 package com.legentey.tgbot;
 
 import com.legentey.tgbot.bot.BotService;
+import com.legentey.tgbot.storage.DatabaseMigrator;
 import com.legentey.tgbot.storage.SqliteApprovalSettingsStore;
 import com.legentey.tgbot.storage.SqliteDeployStore;
 import com.legentey.tgbot.storage.SqliteQuoteStickerStore;
@@ -19,6 +20,8 @@ public class Main {
 
     public static void main(String[] args) {
         Config config = Config.fromEnv();
+
+        DatabaseMigrator.migrate(config.dbPath());
 
         SqliteUserStore store = new SqliteUserStore(config.dbPath());
         SqliteStickerPackStore stickerPackStore = new SqliteStickerPackStore(config.dbPath());

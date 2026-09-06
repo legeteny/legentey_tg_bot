@@ -3,7 +3,6 @@ package com.legentey.tgbot.storage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -27,35 +26,14 @@ public class SqliteUserStore implements UserStore {
     private final Connection connection;
     private final Object lock = new Object();
 
+    /** Schema (the chat_users table) is created by Flyway — see {@link DatabaseMigrator} — before this runs. */
     public SqliteUserStore(String dbPath) {
         try {
-            File dbFile = new File(dbPath);
-            File parent = dbFile.getParentFile();
-            if (parent != null && !parent.exists()) {
-                parent.mkdirs();
-            }
             Class.forName("org.sqlite.JDBC");
             this.connection = DriverManager.getConnection("jdbc:sqlite:" + dbPath);
-            initSchema();
             log.info("Opened SQLite database at {}", dbPath);
         } catch (ClassNotFoundException | SQLException e) {
             throw new RuntimeException("Failed to initialize SQLite storage at " + dbPath, e);
-        }
-    }
-
-    private void initSchema() throws SQLException {
-        try (var st = connection.createStatement()) {
-            st.execute("""
-                    CREATE TABLE IF NOT EXISTS chat_users (
-                        chat_id INTEGER NOT NULL,
-                        user_id INTEGER NOT NULL,
-                        username TEXT,
-                        first_name TEXT,
-                        last_name TEXT,
-                        updated_at INTEGER NOT NULL,
-                        PRIMARY KEY (chat_id, user_id)
-                    )
-                    """);
         }
     }
 

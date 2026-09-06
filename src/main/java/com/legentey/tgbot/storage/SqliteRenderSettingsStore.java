@@ -19,25 +19,13 @@ public class SqliteRenderSettingsStore implements RenderSettingsStore {
     private final Connection connection;
     private final Object lock = new Object();
 
+    /** Schema (the render_settings table, seeded with DEFAULT_WIDTH) is created by Flyway — see {@link DatabaseMigrator}. */
     public SqliteRenderSettingsStore(String dbPath) {
         try {
             Class.forName("org.sqlite.JDBC");
             this.connection = DriverManager.getConnection("jdbc:sqlite:" + dbPath);
-            initSchema();
         } catch (ClassNotFoundException | SQLException e) {
             throw new RuntimeException("Failed to initialize SQLite render settings storage at " + dbPath, e);
-        }
-    }
-
-    private void initSchema() throws SQLException {
-        try (var st = connection.createStatement()) {
-            st.execute("""
-                    CREATE TABLE IF NOT EXISTS render_settings (
-                        id INTEGER PRIMARY KEY CHECK (id = 1),
-                        width INTEGER NOT NULL
-                    )
-                    """);
-            st.execute("INSERT OR IGNORE INTO render_settings (id, width) VALUES (1, " + DEFAULT_WIDTH + ")");
         }
     }
 

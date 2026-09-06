@@ -20,24 +20,13 @@ public class SqliteUpdateOffsetStore implements UpdateOffsetStore {
     private final Connection connection;
     private final Object lock = new Object();
 
+    /** Schema (the update_offset table) is created by Flyway — see {@link DatabaseMigrator}. */
     public SqliteUpdateOffsetStore(String dbPath) {
         try {
             Class.forName("org.sqlite.JDBC");
             this.connection = DriverManager.getConnection("jdbc:sqlite:" + dbPath);
-            initSchema();
         } catch (ClassNotFoundException | SQLException e) {
             throw new RuntimeException("Failed to initialize SQLite update offset storage at " + dbPath, e);
-        }
-    }
-
-    private void initSchema() throws SQLException {
-        try (var st = connection.createStatement()) {
-            st.execute("""
-                    CREATE TABLE IF NOT EXISTS update_offset (
-                        id INTEGER PRIMARY KEY CHECK (id = 0),
-                        next_update_id INTEGER NOT NULL
-                    )
-                    """);
         }
     }
 

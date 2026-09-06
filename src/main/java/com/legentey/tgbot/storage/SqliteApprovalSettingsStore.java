@@ -8,7 +8,6 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 
 public class SqliteApprovalSettingsStore implements ApprovalSettingsStore {
 
@@ -24,37 +23,17 @@ public class SqliteApprovalSettingsStore implements ApprovalSettingsStore {
     /** Which kind of sticker this instance's settings govern — /q and /s each get their own table/row. */
     private final String table;
 
+    /**
+     * Schema (both the approval_settings and sticker_approval_settings tables,
+     * each seeded with one row) is created by Flyway — see {@link DatabaseMigrator}.
+     */
     public SqliteApprovalSettingsStore(String dbPath, String table) {
         this.table = table;
         try {
             Class.forName("org.sqlite.JDBC");
             this.connection = DriverManager.getConnection("jdbc:sqlite:" + dbPath);
-            initSchema();
         } catch (ClassNotFoundException | SQLException e) {
             throw new RuntimeException("Failed to initialize SQLite approval settings storage at " + dbPath, e);
-        }
-    }
-
-    private void initSchema() throws SQLException {
-        try (var st = connection.createStatement()) {
-            st.execute("""
-                    CREATE TABLE IF NOT EXISTS %s (
-                        id INTEGER PRIMARY KEY CHECK (id = 1),
-                        approve_count INTEGER NOT NULL
-                    )
-                    """.formatted(table));
-            st.execute("INSERT OR IGNORE INTO " + table + " (id, approve_count) VALUES (1, "
-                    + DEFAULT_APPROVE_COUNT + ")");
-            // A row written before this column existed keeps the old hardcoded timeout.
-            addColumnIfMissing(st, "approve_timeout_seconds", "INTEGER NOT NULL DEFAULT " + DEFAULT_TIMEOUT_SECONDS);
-        }
-    }
-
-    private void addColumnIfMissing(Statement st, String column, String type) {
-        try {
-            st.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + type);
-        } catch (SQLException e) {
-            // Column already exists (either from a prior run's ALTER, or nothing to migrate) — fine.
         }
     }
 
