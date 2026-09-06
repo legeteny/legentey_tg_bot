@@ -106,6 +106,12 @@ public class CommandHandler {
                     null, messageId);
             return;
         }
+        if (StickerService.quotedText(replyTo).isBlank()) {
+            // Checked here, before the emoji picker, so nobody picks an emoji only to be told afterward
+            // that there was nothing to quote.
+            client.sendMessage(chatId, "В этом сообщении нет текста — цитировать нечего.", null, messageId);
+            return;
+        }
         if (emoji.isBlank()) {
             emojiPicker.prompt(chatId, message.path("from").path("id").asLong(), messageId, replyTo);
             return;

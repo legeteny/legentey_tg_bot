@@ -111,13 +111,9 @@ public class StickerService {
         quoteStickerStore.deleteByFileId(fileId);
     }
 
-    /** Renders the quoted message and adds it to chatId's sticker pack. */
+    /** Renders the quoted message and adds it to chatId's sticker pack. Callers must ensure it has text — see CommandHandler.handleQ. */
     public void createQuote(long chatId, long ownerUserId, JsonNode quotedMessage, String emoji) {
         String text = quotedText(quotedMessage);
-        if (text.isBlank()) {
-            client.sendMessage(chatId, "В этом сообщении нет текста — цитировать нечего.", null, null);
-            return;
-        }
         JsonNode author = resolveAuthor(quotedMessage);
         Profile profile = fetchProfile(author.path("id").asLong());
         JsonNode from = applyProfile(author, profile);
@@ -350,7 +346,7 @@ public class StickerService {
      * Telegram carries a media message's text in "caption", not "text", so a
      * photo with a caption looks textless unless both fields are checked.
      */
-    private static String quotedText(JsonNode quotedMessage) {
+    static String quotedText(JsonNode quotedMessage) {
         String text = quotedMessage.path("text").asText("");
         return text.isEmpty() ? quotedMessage.path("caption").asText("") : text;
     }
