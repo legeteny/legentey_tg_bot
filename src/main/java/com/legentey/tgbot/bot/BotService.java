@@ -25,8 +25,8 @@ public class BotService {
     private static final List<Map<String, String>> COMMANDS = List.of(
             Map.of("command", "all", "description", "Упомянуть всех известных участников чата"),
             Map.of("command", "q", "description", "Ответом на сообщение — сделать из него стикер-цитату"),
-            Map.of("command", "s", "description", "Ответом на стикер — добавить его в стикерпак чата"),
-            Map.of("command", "del", "description", "Ответом на стикер (цитату или обычный) — удалить его с согласия чата")
+            Map.of("command", "s", "description", "Ответом на стикер (.png, .webp) — добавить его в стикерпак чата"),
+            Map.of("command", "del", "description", "Ответом на стикер — удалить его с согласия чата")
     );
 
     /** Only ever useful to one person, so published to that person's own chat scope. */
