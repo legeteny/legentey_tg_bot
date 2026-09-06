@@ -18,11 +18,11 @@ import java.util.Optional;
  * rendering a quote card.
  *
  * <p>A bare /s doesn't necessarily need the picker at all: if the replied-to
- * sticker already carries its own emoji (Telegram's Sticker.emoji field — one or
- * several, concatenated with no separator), that's offered as a one-tap "add with
- * these emoji?" confirmation first — see {@link #promptOrConfirmSourceEmoji}.
- * Only a "no" there, or a source with no emoji of its own (e.g. a plain PNG/WEBP
- * file), falls through to the regular 24-preset-plus-custom grid.
+ * sticker already carries its own emoji (Telegram's Sticker.emoji field), that's
+ * offered as a one-tap "add with this emoji?" confirmation first — see
+ * {@link #promptOrConfirmSourceEmoji}. Only a "no" there, or a source with no
+ * emoji of its own (e.g. a plain PNG/WEBP file), falls through to the regular
+ * 24-preset-plus-custom grid.
  *
  * <p>Unlike {@link QuoteEmojiPicker#handleCallback}, this isn't the last handler
  * in {@link BotService}'s callback chain, so it only claims its own callback_data
@@ -81,12 +81,12 @@ class StickerEmojiPicker {
      * falls through to {@link #prompt} immediately for those.
      */
     void promptOrConfirmSourceEmoji(long chatId, long requesterUserId, long commandMessageId, JsonNode stickerMessage) {
-        String sourceEmoji = stickerMessage.path("sticker").path("emoji").asText("");
-        if (EmojiValidation.splitEmoji(sourceEmoji).isEmpty()) {
+        String sourceEmoji = stickerMessage.path("sticker").path("emoji").asText("").trim();
+        if (sourceEmoji.isBlank()) {
             prompt(chatId, requesterUserId, commandMessageId, stickerMessage);
             return;
         }
-        String text = "У этого стикера уже есть эмодзи: " + sourceEmoji + ". Добавить с этими же эмодзи?";
+        String text = "У этого стикера уже есть эмодзи: " + sourceEmoji + ". Добавить с этим эмодзи?";
         Map<String, Object> markup = Map.of("inline_keyboard", List.of(List.of(
                 Map.of("text", YES_BUTTON, "callback_data", CONFIRM_YES),
                 Map.of("text", NO_BUTTON, "callback_data", CONFIRM_NO))));
@@ -134,7 +134,7 @@ class StickerEmojiPicker {
         }
         // Sticker packs are always owned by the admin account, regardless of who tapped.
         stickerService.addSticker(chatId, config.adminChatId(), found.get().targetMessage(),
-                List.of(data.substring(CALLBACK_PREFIX.length())));
+                data.substring(CALLBACK_PREFIX.length()));
         return true;
     }
 
@@ -172,14 +172,13 @@ class StickerEmojiPicker {
             return true;
         }
         // Re-derived rather than carried in Pending: the source message is immutable, so this
-        // is exactly the same value promptOrConfirmSourceEmoji already confirmed was non-empty.
-        List<String> emojiList = EmojiValidation.splitEmoji(
-                p.targetMessage().path("sticker").path("emoji").asText(""));
-        if (emojiList.isEmpty()) {
+        // is exactly the same value promptOrConfirmSourceEmoji already confirmed was non-blank.
+        String emoji = p.targetMessage().path("sticker").path("emoji").asText("").trim();
+        if (emoji.isBlank()) {
             prompt(chatId, p.requesterUserId(), p.commandMessageId(), p.targetMessage());
             return true;
         }
-        stickerService.addSticker(chatId, config.adminChatId(), p.targetMessage(), emojiList);
+        stickerService.addSticker(chatId, config.adminChatId(), p.targetMessage(), emoji);
         return true;
     }
 
@@ -210,9 +209,7 @@ class StickerEmojiPicker {
         }
         pending.remove(chatId, promptMessageId);
         deleteQuietly(chatId, promptMessageId);
-        // Several emoji typed in a row are kept in that same order, one entry per emoji.
-        stickerService.addSticker(chatId, config.adminChatId(), found.get().targetMessage(),
-                EmojiValidation.splitEmoji(emoji));
+        stickerService.addSticker(chatId, config.adminChatId(), found.get().targetMessage(), emoji);
         return true;
     }
 

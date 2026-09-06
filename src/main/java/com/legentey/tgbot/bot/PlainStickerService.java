@@ -92,8 +92,8 @@ public class PlainStickerService {
         client.deleteStickerFromSet(fileId);
     }
 
-    /** Adds whatever repliedMessage carries (sticker or picture) to chatId's own pack, tagged with all of emojiList. */
-    public void addSticker(long chatId, long ownerUserId, JsonNode repliedMessage, List<String> emojiList) {
+    /** Adds whatever repliedMessage carries (sticker or picture) to chatId's own pack. */
+    public void addSticker(long chatId, long ownerUserId, JsonNode repliedMessage, String emoji) {
         Upload upload;
         try {
             upload = resolveUpload(repliedMessage);
@@ -107,6 +107,7 @@ public class PlainStickerService {
         }
 
         String chatTitle = repliedMessage.path("chat").path("title").asText("");
+        List<String> emojiList = List.of(emoji);
 
         try {
             Optional<StickerPack> existing = packStore.findForChat(chatId);

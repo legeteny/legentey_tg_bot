@@ -111,8 +111,7 @@ public class CommandHandler {
             return;
         }
         // Sticker packs are always owned by the admin account, regardless of who calls /q.
-        // Several emoji typed in a row are kept in that same order, one entry per emoji.
-        stickerService.createQuote(chatId, config.adminChatId(), replyTo, EmojiValidation.splitEmoji(emoji));
+        stickerService.createQuote(chatId, config.adminChatId(), replyTo, emoji);
     }
 
     /** Admin-only, hidden: reports how many others must approve a /del of a /q sticker. */
@@ -239,8 +238,7 @@ public class CommandHandler {
             return;
         }
         // Sticker packs are always owned by the admin account, regardless of who calls /s.
-        // Several emoji typed in a row are kept in that same order, one entry per emoji.
-        plainStickerService.addSticker(chatId, config.adminChatId(), replyTo, EmojiValidation.splitEmoji(emoji));
+        plainStickerService.addSticker(chatId, config.adminChatId(), replyTo, emoji);
     }
 
     /** Structural check only — a sticker/photo/document is there at all, not that it's a usable one. */

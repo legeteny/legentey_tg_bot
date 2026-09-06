@@ -111,8 +111,8 @@ public class StickerService {
         quoteStickerStore.deleteByFileId(fileId);
     }
 
-    /** Renders the quoted message and adds it to chatId's sticker pack, tagged with all of emojiList in order. */
-    public void createQuote(long chatId, long ownerUserId, JsonNode quotedMessage, List<String> emojiList) {
+    /** Renders the quoted message and adds it to chatId's sticker pack. */
+    public void createQuote(long chatId, long ownerUserId, JsonNode quotedMessage, String emoji) {
         String text = quotedText(quotedMessage);
         if (text.isBlank()) {
             client.sendMessage(chatId, "В этом сообщении нет текста — цитировать нечего.", null, null);
@@ -134,7 +134,9 @@ public class StickerService {
         }
 
         String chatTitle = quotedMessage.path("chat").path("title").asText("");
-        addToPack(chatId, ownerUserId, png, emojiList, chatTitle, author, profile, text, entities);
+        // Stored (and sent to Telegram) as a one-element list — see DatabaseMigrator's V2 migration
+        // and TelegramApiClient's emoji_list-based methods, both of which work with any list length.
+        addToPack(chatId, ownerUserId, png, List.of(emoji), chatTitle, author, profile, text, entities);
     }
 
     /**

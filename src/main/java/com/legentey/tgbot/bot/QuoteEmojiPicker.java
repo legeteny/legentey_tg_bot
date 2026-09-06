@@ -94,7 +94,7 @@ class QuoteEmojiPicker {
         }
         // Sticker packs are always owned by the admin account, regardless of who tapped.
         stickerService.createQuote(chatId, config.adminChatId(), found.get().targetMessage(),
-                List.of(data.substring(CALLBACK_PREFIX.length())));
+                data.substring(CALLBACK_PREFIX.length()));
     }
 
     /**
@@ -124,9 +124,7 @@ class QuoteEmojiPicker {
         }
         pending.remove(chatId, promptMessageId);
         deleteQuietly(chatId, promptMessageId);
-        // Several emoji typed in a row are kept in that same order, one entry per emoji.
-        stickerService.createQuote(chatId, config.adminChatId(), found.get().targetMessage(),
-                EmojiValidation.splitEmoji(emoji));
+        stickerService.createQuote(chatId, config.adminChatId(), found.get().targetMessage(), emoji);
         return true;
     }
 
