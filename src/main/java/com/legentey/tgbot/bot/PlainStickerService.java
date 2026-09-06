@@ -21,19 +21,27 @@ import java.util.Optional;
  * its whole life, and a chat's pack is meant to stay singular, so animated and
  * video stickers are rejected outright rather than spawning a second pack.
  *
- * <p>Two different sources feed /s:
+ * <p>Two different sources feed /s, and telling them apart is trickier than it
+ * looks: Telegram's own clients wrap <em>any</em> attached .webp file as a
+ * {@code message.sticker} — even one that was never added to a pack and doesn't
+ * remotely satisfy the sticker-set dimension rule — so {@code message.sticker}
+ * alone doesn't mean "already a valid, correctly-sized sticker". The set's
+ * {@code set_name} field is what actually distinguishes them:
  * <ul>
- *     <li>a reply to an existing (static) sticker — its file_id already lives on
- *     Telegram's servers, so it's passed straight through to the sticker-set
- *     methods with no download at all;</li>
- *     <li>a reply to a plain picture sent as a "document" with an image/png or
- *     image/webp MIME type — deliberately not a compressed "photo" (Telegram
+ *     <li>a reply to a sticker that carries a {@code set_name} — i.e. one that
+ *     genuinely belongs to some existing pack — is already Telegram-validated,
+ *     so its file_id is passed straight through to the sticker-set methods with
+ *     no download at all;</li>
+ *     <li>anything else with image bytes behind it — a {@code sticker} with no
+ *     {@code set_name} (an ad-hoc webp attachment Telegram only *displays* like a
+ *     sticker), or a plain picture sent as a "document" with an image/png or
+ *     image/webp MIME type (deliberately not a compressed "photo": Telegram
  *     always re-encodes those as JPEG, which isn't one of the two accepted
- *     formats) — which has to be downloaded and turned into an actual sticker
- *     upload. Both decode and resize the same way, through
- *     {@link StickerImage#normalizeForSticker} ({@code ImageIO}, with the
- *     {@code imageio-webp} dependency registering a WEBP reader the JDK doesn't
- *     ship on its own), and are re-encoded as PNG.</li>
+ *     formats) — has to be downloaded and resized to fit, since there's no
+ *     guarantee it's anywhere near 512px. All of these decode and resize the
+ *     same way, through {@link StickerImage#normalizeForSticker} ({@code
+ *     ImageIO}, with the {@code imageio-webp} dependency registering a WEBP
+ *     reader the JDK doesn't ship on its own), and are re-encoded as PNG.</li>
  * </ul>
  */
 public class PlainStickerService {
@@ -154,7 +162,15 @@ public class PlainStickerService {
             if (fileId == null) {
                 throw new IllegalStateException("Telegram did not include a file_id for this sticker");
             }
-            return Upload.ofFileId(fileId);
+            if (sticker.hasNonNull("set_name")) {
+                // A real sticker from an existing pack: Telegram already validated its dimensions
+                // when it was first added, so there's nothing to re-check or re-encode here.
+                return Upload.ofFileId(fileId);
+            }
+            // No set_name means this "sticker" is really just a .webp file the sender attached —
+            // Telegram's clients display any such file like a sticker regardless of its actual
+            // size, so it needs the same download-and-resize treatment as a document below.
+            return Upload.ofBytes(downloadAndNormalize(fileId), "sticker.png", "image/png");
         }
 
         JsonNode document = message.path("document");
