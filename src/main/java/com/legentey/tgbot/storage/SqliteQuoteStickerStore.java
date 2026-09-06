@@ -1,5 +1,7 @@
 package com.legentey.tgbot.storage;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,6 +56,7 @@ public class SqliteQuoteStickerStore implements QuoteStickerStore {
             addColumnIfMissing(st, "emoji_status", "TEXT");
             addColumnIfMissing(st, "username", "TEXT");
         }
+        migrateEmojiToJsonArray();
     }
 
     private void addColumnIfMissing(Statement st, String column, String type) {
@@ -62,6 +65,52 @@ public class SqliteQuoteStickerStore implements QuoteStickerStore {
         } catch (SQLException e) {
             // Column already exists (either from CREATE TABLE on a fresh DB, or a prior run's ALTER) — fine.
         }
+    }
+
+    /**
+     * Rows written before multi-emoji support stored a bare emoji character in this
+     * column (e.g. "😀"); newer rows store a JSON array (e.g. ["😀","😄"]) so more
+     * than one can round-trip through /q_rerender. This upgrades any row still in
+     * the old shape in place. It's a plain heuristic rather than an attempted JSON
+     * parse — no valid emoji starts with '[', so "doesn't look like a JSON array"
+     * is exactly "is a legacy row" — and it's idempotent (an already-migrated row
+     * is left alone), so it's safe to run on every startup instead of needing a
+     * one-shot flag.
+     */
+    private void migrateEmojiToJsonArray() throws SQLException {
+        record LegacyRow(long id, String emoji) {
+        }
+        List<LegacyRow> legacy = new ArrayList<>();
+        try (var st = connection.createStatement();
+             ResultSet rs = st.executeQuery("SELECT id, emoji FROM quote_stickers")) {
+            while (rs.next()) {
+                String emoji = rs.getString("emoji");
+                if (emoji != null && !looksLikeJsonArray(emoji)) {
+                    legacy.add(new LegacyRow(rs.getLong("id"), emoji));
+                }
+            }
+        }
+        if (legacy.isEmpty()) {
+            return;
+        }
+
+        ObjectMapper mapper = new ObjectMapper();
+        try (PreparedStatement ps = connection.prepareStatement("UPDATE quote_stickers SET emoji = ? WHERE id = ?")) {
+            for (LegacyRow row : legacy) {
+                ps.setString(1, mapper.writeValueAsString(List.of(row.emoji())));
+                ps.setLong(2, row.id());
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        } catch (JsonProcessingException e) {
+            throw new SQLException("Failed to serialize a legacy emoji value during migration", e);
+        }
+        log.info("Migrated {} quote sticker row(s) from bare-emoji to JSON-array format", legacy.size());
+    }
+
+    private static boolean looksLikeJsonArray(String value) {
+        String trimmed = value.trim();
+        return trimmed.startsWith("[") && trimmed.endsWith("]");
     }
 
     @Override

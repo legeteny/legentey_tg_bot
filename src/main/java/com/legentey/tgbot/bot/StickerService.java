@@ -16,6 +16,7 @@ import com.legentey.tgbot.telegram.TelegramApiException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -110,8 +111,8 @@ public class StickerService {
         quoteStickerStore.deleteByFileId(fileId);
     }
 
-    /** Renders the quoted message and adds it to chatId's sticker pack. */
-    public void createQuote(long chatId, long ownerUserId, JsonNode quotedMessage, String emoji) {
+    /** Renders the quoted message and adds it to chatId's sticker pack, tagged with all of emojiList in order. */
+    public void createQuote(long chatId, long ownerUserId, JsonNode quotedMessage, List<String> emojiList) {
         String text = quotedText(quotedMessage);
         if (text.isBlank()) {
             client.sendMessage(chatId, "В этом сообщении нет текста — цитировать нечего.", null, null);
@@ -133,7 +134,7 @@ public class StickerService {
         }
 
         String chatTitle = quotedMessage.path("chat").path("title").asText("");
-        addToPack(chatId, ownerUserId, png, emoji, chatTitle, author, profile, text, entities);
+        addToPack(chatId, ownerUserId, png, emojiList, chatTitle, author, profile, text, entities);
     }
 
     /**
@@ -253,7 +254,7 @@ public class StickerService {
 
         try {
             client.replaceStickerInSet(sticker.ownerUserId(), sticker.packName(), sticker.fileId(),
-                    png, List.of(sticker.emoji()));
+                    png, parseEmojiList(sticker.emoji()));
         } catch (TelegramApiException e) {
             if (e.getMessage().contains("STICKERSET_INVALID") || e.getMessage().contains("STICKER_ALREADY_DELETED")) {
                 // The sticker this record points at no longer exists in the pack — deleted by
@@ -412,9 +413,8 @@ public class StickerService {
         }
     }
 
-    private void addToPack(long chatId, long ownerUserId, byte[] png, String emoji, String chatTitle,
+    private void addToPack(long chatId, long ownerUserId, byte[] png, List<String> emojiList, String chatTitle,
                             JsonNode author, Profile profile, String text, JsonNode entities) {
-        List<String> emojiList = List.of(emoji);
         Optional<StickerPack> existing = packStore.findForChat(chatId);
         String packName;
         try {
@@ -441,7 +441,7 @@ public class StickerService {
             client.sendMessage(chatId, "Не получилось добавить стикер: " + e.getMessage(), null, null);
             return;
         }
-        rememberRenderInputs(chatId, packName, ownerUserId, author, profile, text, entities, emoji);
+        rememberRenderInputs(chatId, packName, ownerUserId, author, profile, text, entities, emojiList);
     }
 
     /**
@@ -451,7 +451,7 @@ public class StickerService {
      * won't be picked up by a future rerender.
      */
     private void rememberRenderInputs(long chatId, String packName, long ownerUserId, JsonNode author,
-                                       Profile profile, String text, JsonNode entities, String emoji) {
+                                       Profile profile, String text, JsonNode entities, List<String> emojiList) {
         try {
             JsonNode setStickers = client.getStickerSet(packName).path("stickers");
             int n = setStickers.size();
@@ -465,9 +465,40 @@ public class StickerService {
             String entitiesJson = entities != null && entities.isArray() && !entities.isEmpty()
                     ? entities.toString() : null;
             quoteStickerStore.save(chatId, packName, ownerUserId, fileId, author.toString(), text, entitiesJson,
-                    emoji, profile.avatarFileId(), profile.emojiStatus(), profile.username());
+                    serializeEmojiList(emojiList), profile.avatarFileId(), profile.emojiStatus(),
+                    profile.username());
         } catch (TelegramApiException e) {
             log.warn("Could not remember render inputs for new sticker in pack {}: {}", packName, e.getMessage());
+        }
+    }
+
+    /**
+     * The DB column predates multi-emoji support, so it stores a JSON array now but
+     * may still hold rows written back when it was just a bare emoji string — this
+     * reads either shape back into a list.
+     */
+    private List<String> parseEmojiList(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        try {
+            JsonNode node = mapper.readTree(raw);
+            if (node.isArray()) {
+                List<String> list = new ArrayList<>();
+                node.forEach(e -> list.add(e.asText()));
+                return list;
+            }
+        } catch (JsonProcessingException ignored) {
+            // Not JSON — a pre-multi-emoji row storing a bare emoji string. Fall through.
+        }
+        return List.of(raw);
+    }
+
+    private String serializeEmojiList(List<String> emojiList) {
+        try {
+            return mapper.writeValueAsString(emojiList);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to serialize an emoji list", e);
         }
     }
 

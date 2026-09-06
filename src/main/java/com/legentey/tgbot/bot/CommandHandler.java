@@ -111,7 +111,8 @@ public class CommandHandler {
             return;
         }
         // Sticker packs are always owned by the admin account, regardless of who calls /q.
-        stickerService.createQuote(chatId, config.adminChatId(), replyTo, emoji);
+        // Several emoji typed in a row are kept in that same order, one entry per emoji.
+        stickerService.createQuote(chatId, config.adminChatId(), replyTo, EmojiValidation.splitEmoji(emoji));
     }
 
     /** Admin-only, hidden: reports how many others must approve a /del of a /q sticker. */
@@ -233,11 +234,13 @@ public class CommandHandler {
             return;
         }
         if (emoji.isBlank()) {
-            stickerEmojiPicker.prompt(chatId, message.path("from").path("id").asLong(), messageId, replyTo);
+            stickerEmojiPicker.promptOrConfirmSourceEmoji(chatId, message.path("from").path("id").asLong(), messageId,
+                    replyTo);
             return;
         }
         // Sticker packs are always owned by the admin account, regardless of who calls /s.
-        plainStickerService.addSticker(chatId, config.adminChatId(), replyTo, emoji);
+        // Several emoji typed in a row are kept in that same order, one entry per emoji.
+        plainStickerService.addSticker(chatId, config.adminChatId(), replyTo, EmojiValidation.splitEmoji(emoji));
     }
 
     /** Structural check only — a sticker/photo/document is there at all, not that it's a usable one. */

@@ -17,9 +17,16 @@ import java.util.Optional;
  * but for adding an existing sticker to the chat's own sticker pack instead of
  * rendering a quote card.
  *
+ * <p>A bare /s doesn't necessarily need the picker at all: if the replied-to
+ * sticker already carries its own emoji (Telegram's Sticker.emoji field — one or
+ * several, concatenated with no separator), that's offered as a one-tap "add with
+ * these emoji?" confirmation first — see {@link #promptOrConfirmSourceEmoji}.
+ * Only a "no" there, or a source with no emoji of its own (e.g. a plain PNG/WEBP
+ * file), falls through to the regular 24-preset-plus-custom grid.
+ *
  * <p>Unlike {@link QuoteEmojiPicker#handleCallback}, this isn't the last handler
  * in {@link BotService}'s callback chain, so it only claims its own callback_data
- * ("s|...") and leaves anything else untouched.
+ * ("s|..." and "sconf|...") and leaves anything else untouched.
  */
 class StickerEmojiPicker {
 
@@ -27,6 +34,9 @@ class StickerEmojiPicker {
 
     private static final String CALLBACK_PREFIX = "s|";
     private static final String CUSTOM_CALLBACK = "s|*";
+    private static final String CONFIRM_PREFIX = "sconf|";
+    private static final String CONFIRM_YES = "sconf|yes";
+    private static final String CONFIRM_NO = "sconf|no";
     private static final int COLUMNS = 6;
 
     private static final List<String> EMOJIS = List.of(
@@ -39,6 +49,8 @@ class StickerEmojiPicker {
     private static final String PICK_PROMPT = "Выберите смайл для стикера:";
     private static final String CUSTOM_BUTTON = "Свой смайл";
     private static final String CUSTOM_PROMPT = "Отправьте свой смайл ответом на это сообщение.";
+    private static final String YES_BUTTON = "Да";
+    private static final String NO_BUTTON = "Нет";
     private static final String EXPIRED = "Кнопка устарела — вызовите /s заново.";
     private static final String NOT_YOURS = "Это не ваша кнопка.";
     private static final String NOT_AN_EMOJI = "Это не похоже на смайл — пришлите один смайл.";
@@ -62,9 +74,32 @@ class StickerEmojiPicker {
         pending.put(chatId, sent.path("message_id").asLong(), stickerMessage, requesterUserId, commandMessageId);
     }
 
+    /**
+     * Entry point for a bare /s. If the replied-to sticker already has its own
+     * emoji, offers to reuse it instead of going straight to the picker — a
+     * plain PNG/WEBP source (no "sticker" field at all) never has one, so this
+     * falls through to {@link #prompt} immediately for those.
+     */
+    void promptOrConfirmSourceEmoji(long chatId, long requesterUserId, long commandMessageId, JsonNode stickerMessage) {
+        String sourceEmoji = stickerMessage.path("sticker").path("emoji").asText("");
+        if (EmojiValidation.splitEmoji(sourceEmoji).isEmpty()) {
+            prompt(chatId, requesterUserId, commandMessageId, stickerMessage);
+            return;
+        }
+        String text = "У этого стикера уже есть эмодзи: " + sourceEmoji + ". Добавить с этими же эмодзи?";
+        Map<String, Object> markup = Map.of("inline_keyboard", List.of(List.of(
+                Map.of("text", YES_BUTTON, "callback_data", CONFIRM_YES),
+                Map.of("text", NO_BUTTON, "callback_data", CONFIRM_NO))));
+        JsonNode sent = client.sendMessage(chatId, text, null, commandMessageId, markup);
+        pending.put(chatId, sent.path("message_id").asLong(), stickerMessage, requesterUserId, commandMessageId);
+    }
+
     /** Handles a tap on one of the keyboard's buttons. Returns false if the data isn't this picker's. */
     boolean handleCallback(JsonNode callbackQuery) {
         String data = callbackQuery.path("data").asText("");
+        if (data.startsWith(CONFIRM_PREFIX)) {
+            return handleConfirmCallback(callbackQuery, data);
+        }
         if (!data.startsWith(CALLBACK_PREFIX)) {
             return false;
         }
@@ -99,7 +134,52 @@ class StickerEmojiPicker {
         }
         // Sticker packs are always owned by the admin account, regardless of who tapped.
         stickerService.addSticker(chatId, config.adminChatId(), found.get().targetMessage(),
-                data.substring(CALLBACK_PREFIX.length()));
+                List.of(data.substring(CALLBACK_PREFIX.length())));
+        return true;
+    }
+
+    /** Handles a tap on the "add with the source sticker's own emoji?" confirmation. */
+    private boolean handleConfirmCallback(JsonNode callbackQuery, String data) {
+        String callbackId = callbackQuery.path("id").asText();
+        if (config.adminChatId() == null) {
+            client.answerCallbackQuery(callbackId, null, false);
+            return true;
+        }
+
+        JsonNode promptMessage = callbackQuery.path("message");
+        long chatId = promptMessage.path("chat").path("id").asLong();
+        long promptMessageId = promptMessage.path("message_id").asLong();
+        long userId = callbackQuery.path("from").path("id").asLong();
+
+        Optional<PendingEmojiPrompt.Pending> found = pending.peek(chatId, promptMessageId);
+        if (found.isEmpty()) {
+            client.answerCallbackQuery(callbackId, EXPIRED, false);
+            deleteQuietly(chatId, promptMessageId);
+            return true;
+        }
+        if (found.get().requesterUserId() != userId) {
+            client.answerCallbackQuery(callbackId, NOT_YOURS, false);
+            return true;
+        }
+        client.answerCallbackQuery(callbackId, null, false);
+
+        PendingEmojiPrompt.Pending p = found.get();
+        pending.remove(chatId, promptMessageId);
+        deleteQuietly(chatId, promptMessageId);
+
+        if (CONFIRM_NO.equals(data)) {
+            prompt(chatId, p.requesterUserId(), p.commandMessageId(), p.targetMessage());
+            return true;
+        }
+        // Re-derived rather than carried in Pending: the source message is immutable, so this
+        // is exactly the same value promptOrConfirmSourceEmoji already confirmed was non-empty.
+        List<String> emojiList = EmojiValidation.splitEmoji(
+                p.targetMessage().path("sticker").path("emoji").asText(""));
+        if (emojiList.isEmpty()) {
+            prompt(chatId, p.requesterUserId(), p.commandMessageId(), p.targetMessage());
+            return true;
+        }
+        stickerService.addSticker(chatId, config.adminChatId(), p.targetMessage(), emojiList);
         return true;
     }
 
@@ -130,7 +210,9 @@ class StickerEmojiPicker {
         }
         pending.remove(chatId, promptMessageId);
         deleteQuietly(chatId, promptMessageId);
-        stickerService.addSticker(chatId, config.adminChatId(), found.get().targetMessage(), emoji);
+        // Several emoji typed in a row are kept in that same order, one entry per emoji.
+        stickerService.addSticker(chatId, config.adminChatId(), found.get().targetMessage(),
+                EmojiValidation.splitEmoji(emoji));
         return true;
     }
 
