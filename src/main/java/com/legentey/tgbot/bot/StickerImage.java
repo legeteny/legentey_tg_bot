@@ -25,6 +25,11 @@ final class StickerImage {
     static byte[] normalizeForSticker(byte[] png) {
         try {
             BufferedImage original = ImageIO.read(new ByteArrayInputStream(png));
+            if (original == null) {
+                // ImageIO.read returns null (not an exception) when no registered reader
+                // recognizes the bytes — a corrupt file, or a genuinely unsupported format.
+                throw new IOException("no ImageIO reader could decode this file");
+            }
             int width = original.getWidth();
             int height = original.getHeight();
             int longerSide = Math.max(width, height);

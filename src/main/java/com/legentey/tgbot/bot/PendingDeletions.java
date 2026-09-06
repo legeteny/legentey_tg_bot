@@ -10,11 +10,16 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * The /q_del votes currently open, held in memory only: a vote lives minutes, and
+ * The /del votes currently open, held in memory only: a vote lives minutes, and
  * a restart is far rarer than that, so losing one costs nothing but a repeated
- * /q_del.
+ * /del.
  */
 class PendingDeletions {
+
+    /** Which pack the sticker being voted on lives in — decides how it's actually deleted once approved. */
+    enum Kind {
+        QUOTE, STICKER
+    }
 
     /** Identifies a vote by the bot message carrying its button. */
     record Key(long chatId, long messageId) {
@@ -25,16 +30,16 @@ class PendingDeletions {
      * changing either setting mid-vote cannot move the goalposts on a vote already
      * under way.
      */
-    record Vote(String stickerFileId, long stickerMessageId, long initiatorUserId, int required,
+    record Vote(Kind kind, String stickerFileId, long stickerMessageId, long initiatorUserId, int required,
                 Set<Long> approvers, Instant expiresAt) {
     }
 
     private final Map<Key, Vote> votes = new ConcurrentHashMap<>();
 
-    void put(long chatId, long messageId, String stickerFileId, long stickerMessageId, long initiatorUserId,
-             int required, Duration ttl) {
-        votes.put(new Key(chatId, messageId), new Vote(stickerFileId, stickerMessageId, initiatorUserId, required,
-                ConcurrentHashMap.newKeySet(), Instant.now().plus(ttl)));
+    void put(long chatId, long messageId, Kind kind, String stickerFileId, long stickerMessageId,
+             long initiatorUserId, int required, Duration ttl) {
+        votes.put(new Key(chatId, messageId), new Vote(kind, stickerFileId, stickerMessageId, initiatorUserId,
+                required, ConcurrentHashMap.newKeySet(), Instant.now().plus(ttl)));
     }
 
     Optional<Vote> peek(long chatId, long messageId) {

@@ -8,11 +8,14 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 
-public class SqliteRegularStickerPackStore implements RegularStickerPackStore {
+/**
+ * The chat's own /s sticker pack — one per chat, kept in a table separate from
+ * {@link SqliteStickerPackStore}'s (which is /q's) so the two commands' packs
+ * never collide on the same chat_id key.
+ */
+public class SqliteRegularStickerPackStore implements StickerPackStore {
 
     private static final Logger log = LoggerFactory.getLogger(SqliteRegularStickerPackStore.class);
 
@@ -33,24 +36,20 @@ public class SqliteRegularStickerPackStore implements RegularStickerPackStore {
         try (var st = connection.createStatement()) {
             st.execute("""
                     CREATE TABLE IF NOT EXISTS chat_regular_sticker_packs (
-                        chat_id INTEGER NOT NULL,
-                        format TEXT NOT NULL,
+                        chat_id INTEGER PRIMARY KEY,
                         pack_name TEXT NOT NULL,
-                        owner_user_id INTEGER NOT NULL,
-                        PRIMARY KEY (chat_id, format)
+                        owner_user_id INTEGER NOT NULL
                     )
                     """);
         }
     }
 
     @Override
-    public Optional<StickerPack> findForChat(long chatId, String format) {
+    public Optional<StickerPack> findForChat(long chatId) {
         synchronized (lock) {
-            String sql = "SELECT pack_name, owner_user_id FROM chat_regular_sticker_packs "
-                    + "WHERE chat_id = ? AND format = ?";
+            String sql = "SELECT pack_name, owner_user_id FROM chat_regular_sticker_packs WHERE chat_id = ?";
             try (PreparedStatement ps = connection.prepareStatement(sql)) {
                 ps.setLong(1, chatId);
-                ps.setString(2, format);
                 try (ResultSet rs = ps.executeQuery()) {
                     if (!rs.next()) {
                         return Optional.empty();
@@ -58,49 +57,29 @@ public class SqliteRegularStickerPackStore implements RegularStickerPackStore {
                     return Optional.of(new StickerPack(chatId, rs.getString("pack_name"), rs.getLong("owner_user_id")));
                 }
             } catch (SQLException e) {
-                log.error("Failed to look up regular sticker pack for chat {} format {}", chatId, format, e);
+                log.error("Failed to look up regular sticker pack for chat {}", chatId, e);
                 return Optional.empty();
             }
         }
     }
 
     @Override
-    public List<StickerPack> findAllForChat(long chatId) {
-        synchronized (lock) {
-            String sql = "SELECT pack_name, owner_user_id FROM chat_regular_sticker_packs WHERE chat_id = ?";
-            List<StickerPack> packs = new ArrayList<>();
-            try (PreparedStatement ps = connection.prepareStatement(sql)) {
-                ps.setLong(1, chatId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        packs.add(new StickerPack(chatId, rs.getString("pack_name"), rs.getLong("owner_user_id")));
-                    }
-                }
-            } catch (SQLException e) {
-                log.error("Failed to look up regular sticker packs for chat {}", chatId, e);
-            }
-            return packs;
-        }
-    }
-
-    @Override
-    public void save(long chatId, String format, String packName, long ownerUserId) {
+    public void save(long chatId, String packName, long ownerUserId) {
         synchronized (lock) {
             String sql = """
-                    INSERT INTO chat_regular_sticker_packs (chat_id, format, pack_name, owner_user_id)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(chat_id, format) DO UPDATE SET
+                    INSERT INTO chat_regular_sticker_packs (chat_id, pack_name, owner_user_id)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(chat_id) DO UPDATE SET
                         pack_name = excluded.pack_name,
                         owner_user_id = excluded.owner_user_id
                     """;
             try (PreparedStatement ps = connection.prepareStatement(sql)) {
                 ps.setLong(1, chatId);
-                ps.setString(2, format);
-                ps.setString(3, packName);
-                ps.setLong(4, ownerUserId);
+                ps.setString(2, packName);
+                ps.setLong(3, ownerUserId);
                 ps.executeUpdate();
             } catch (SQLException e) {
-                log.error("Failed to save regular sticker pack for chat {} format {}", chatId, format, e);
+                log.error("Failed to save regular sticker pack for chat {}", chatId, e);
             }
         }
     }

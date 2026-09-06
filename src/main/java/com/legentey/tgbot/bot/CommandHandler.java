@@ -16,18 +16,17 @@ public class CommandHandler {
     private final UserStore store;
     private final StickerService stickerService;
     private final QuoteEmojiPicker emojiPicker;
-    private final QuoteDeletionVote deletionVote;
+    private final DeletionVote deletionVote;
     private final ApprovalSettingsStore approvalSettingsStore;
     private final PlainStickerService plainStickerService;
     private final StickerEmojiPicker stickerEmojiPicker;
-    private final PlainStickerDeletionVote stickerDeletionVote;
     private final ApprovalSettingsStore stickerApprovalSettingsStore;
     private final Config config;
 
     public CommandHandler(TelegramApiClient client, UserStore store, StickerService stickerService,
-                          QuoteEmojiPicker emojiPicker, QuoteDeletionVote deletionVote,
+                          QuoteEmojiPicker emojiPicker, DeletionVote deletionVote,
                           ApprovalSettingsStore approvalSettingsStore, PlainStickerService plainStickerService,
-                          StickerEmojiPicker stickerEmojiPicker, PlainStickerDeletionVote stickerDeletionVote,
+                          StickerEmojiPicker stickerEmojiPicker,
                           ApprovalSettingsStore stickerApprovalSettingsStore, Config config) {
         this.client = client;
         this.store = store;
@@ -37,7 +36,6 @@ public class CommandHandler {
         this.approvalSettingsStore = approvalSettingsStore;
         this.plainStickerService = plainStickerService;
         this.stickerEmojiPicker = stickerEmojiPicker;
-        this.stickerDeletionVote = stickerDeletionVote;
         this.stickerApprovalSettingsStore = stickerApprovalSettingsStore;
         this.config = config;
     }
@@ -56,8 +54,6 @@ public class CommandHandler {
         switch (command) {
             case "all" -> handleAll(chatId, isGroup);
             case "q" -> handleQ(message, chatId, isGroup, args);
-            case "q_rand" -> handleQRand(chatId, isGroup);
-            case "q_del" -> handleQDel(message, chatId, isGroup);
             case "q_get_approve_count" -> handleQGetApproveCount(message, chatId);
             case "q_set_approve_count" -> handleQSetApproveCount(message, chatId, args);
             case "q_get_approve_timeout" -> handleQGetApproveTimeout(message, chatId);
@@ -66,7 +62,7 @@ public class CommandHandler {
             case "q_get_width" -> handleQGetWidth(message, chatId);
             case "q_set_width" -> handleQSetWidth(message, chatId, args);
             case "s" -> handleS(message, chatId, isGroup, args);
-            case "s_del" -> handleSDel(message, chatId, isGroup);
+            case "del" -> handleDel(message, chatId, isGroup);
             case "s_get_approve_count" -> handleSGetApproveCount(message, chatId);
             case "s_set_approve_count" -> handleSSetApproveCount(message, chatId, args);
             case "s_get_approve_timeout" -> handleSGetApproveTimeout(message, chatId);
@@ -118,29 +114,7 @@ public class CommandHandler {
         stickerService.createQuote(chatId, config.adminChatId(), replyTo, emoji);
     }
 
-    private void handleQRand(long chatId, boolean isGroup) {
-        if (!isGroup) {
-            return;
-        }
-        stickerService.sendRandomQuote(chatId);
-    }
-
-    private void handleQDel(JsonNode message, long chatId, boolean isGroup) {
-        if (!isGroup) {
-            return;
-        }
-        long messageId = message.path("message_id").asLong();
-        JsonNode stickerMessage = message.path("reply_to_message");
-        JsonNode sticker = stickerMessage.path("sticker");
-        if (sticker.isMissingNode() || sticker.isNull()) {
-            client.sendMessage(chatId, "Ответьте командой /q_del на стикер-цитату, которую нужно удалить.",
-                    null, messageId);
-            return;
-        }
-        deletionVote.requestDeletion(chatId, message.path("from").path("id").asLong(), messageId, stickerMessage);
-    }
-
-    /** Admin-only, hidden: reports how many others must approve a /q_del. */
+    /** Admin-only, hidden: reports how many others must approve a /del of a /q sticker. */
     private void handleQGetApproveCount(JsonNode message, long chatId) {
         if (!isAdmin(message)) {
             return;
@@ -149,7 +123,7 @@ public class CommandHandler {
                 + approvalSettingsStore.getApproveCount(), null, null);
     }
 
-    /** Admin-only, hidden: changes how many others must approve a /q_del. */
+    /** Admin-only, hidden: changes how many others must approve a /del of a /q sticker. */
     private void handleQSetApproveCount(JsonNode message, long chatId, String args) {
         if (!isAdmin(message)) {
             return;
@@ -161,12 +135,12 @@ public class CommandHandler {
         }
         approvalSettingsStore.setApproveCount(count);
         client.sendMessage(chatId, count == 0
-                        ? "Подтверждения выключены: /q_del удаляет цитату сразу."
+                        ? "Подтверждения выключены: /del удаляет цитату сразу."
                         : "Нужно подтверждений для удаления: " + count + ".",
                 null, null);
     }
 
-    /** Admin-only, hidden: reports how long a /q_del vote stays open. */
+    /** Admin-only, hidden: reports how long a /del vote on a /q sticker stays open. */
     private void handleQGetApproveTimeout(JsonNode message, long chatId) {
         if (!isAdmin(message)) {
             return;
@@ -176,8 +150,8 @@ public class CommandHandler {
     }
 
     /**
-     * Admin-only, hidden: changes how long a /q_del vote stays open. Votes already
-     * under way keep the timeout they opened with.
+     * Admin-only, hidden: changes how long a /del vote on a /q sticker stays open.
+     * Votes already under way keep the timeout they opened with.
      */
     private void handleQSetApproveTimeout(JsonNode message, long chatId, String args) {
         if (!isAdmin(message)) {
@@ -248,10 +222,12 @@ public class CommandHandler {
         }
         long messageId = message.path("message_id").asLong();
         JsonNode replyTo = message.path("reply_to_message");
-        JsonNode sticker = replyTo.path("sticker");
-        if (replyTo.isMissingNode() || replyTo.isNull() || sticker.isMissingNode() || sticker.isNull()) {
+        if (replyTo.isMissingNode() || replyTo.isNull() || !hasStickerSource(replyTo)) {
             // This is how a bare /s tapped in Telegram's command menu arrives: sent at once, with nothing to add.
-            client.sendMessage(chatId, "Ответьте командой /s на стикер, который нужно добавить в стикерпак чата.",
+            // Whether the source itself is actually usable (right format, right size) is checked later, once an
+            // emoji is known — same as /q defers "was there any text to quote" until stickerService.createQuote.
+            client.sendMessage(chatId,
+                    "Ответьте командой /s на стикер или картинку (PNG/WEBP), которую нужно добавить в стикерпак чата.",
                     null, messageId);
             return;
         }
@@ -263,7 +239,21 @@ public class CommandHandler {
         plainStickerService.addSticker(chatId, config.adminChatId(), replyTo, emoji);
     }
 
-    private void handleSDel(JsonNode message, long chatId, boolean isGroup) {
+    /** Structural check only — a sticker/photo/document is there at all, not that it's a usable one. */
+    private static boolean hasStickerSource(JsonNode message) {
+        JsonNode sticker = message.path("sticker");
+        if (!sticker.isMissingNode() && !sticker.isNull()) {
+            return true;
+        }
+        JsonNode photo = message.path("photo");
+        if (photo.isArray() && !photo.isEmpty()) {
+            return true;
+        }
+        JsonNode document = message.path("document");
+        return !document.isMissingNode() && !document.isNull();
+    }
+
+    private void handleDel(JsonNode message, long chatId, boolean isGroup) {
         if (!isGroup) {
             return;
         }
@@ -271,15 +261,14 @@ public class CommandHandler {
         JsonNode stickerMessage = message.path("reply_to_message");
         JsonNode sticker = stickerMessage.path("sticker");
         if (sticker.isMissingNode() || sticker.isNull()) {
-            client.sendMessage(chatId, "Ответьте командой /s_del на стикер, который нужно удалить.",
+            client.sendMessage(chatId, "Ответьте командой /del на стикер, который нужно удалить.",
                     null, messageId);
             return;
         }
-        stickerDeletionVote.requestDeletion(chatId, message.path("from").path("id").asLong(), messageId,
-                stickerMessage);
+        deletionVote.requestDeletion(chatId, message.path("from").path("id").asLong(), messageId, stickerMessage);
     }
 
-    /** Admin-only, hidden: reports how many others must approve an /s_del. */
+    /** Admin-only, hidden: reports how many others must approve a /del of an /s sticker. */
     private void handleSGetApproveCount(JsonNode message, long chatId) {
         if (!isAdmin(message)) {
             return;
@@ -288,7 +277,7 @@ public class CommandHandler {
                 + stickerApprovalSettingsStore.getApproveCount(), null, null);
     }
 
-    /** Admin-only, hidden: changes how many others must approve an /s_del. */
+    /** Admin-only, hidden: changes how many others must approve a /del of an /s sticker. */
     private void handleSSetApproveCount(JsonNode message, long chatId, String args) {
         if (!isAdmin(message)) {
             return;
@@ -300,12 +289,12 @@ public class CommandHandler {
         }
         stickerApprovalSettingsStore.setApproveCount(count);
         client.sendMessage(chatId, count == 0
-                        ? "Подтверждения выключены: /s_del удаляет стикер сразу."
+                        ? "Подтверждения выключены: /del удаляет стикер сразу."
                         : "Нужно подтверждений для удаления: " + count + ".",
                 null, null);
     }
 
-    /** Admin-only, hidden: reports how long an /s_del vote stays open. */
+    /** Admin-only, hidden: reports how long a /del vote on an /s sticker stays open. */
     private void handleSGetApproveTimeout(JsonNode message, long chatId) {
         if (!isAdmin(message)) {
             return;
@@ -315,8 +304,8 @@ public class CommandHandler {
     }
 
     /**
-     * Admin-only, hidden: changes how long an /s_del vote stays open. Votes already
-     * under way keep the timeout they opened with.
+     * Admin-only, hidden: changes how long a /del vote on an /s sticker stays open.
+     * Votes already under way keep the timeout they opened with.
      */
     private void handleSSetApproveTimeout(JsonNode message, long chatId, String args) {
         if (!isAdmin(message)) {

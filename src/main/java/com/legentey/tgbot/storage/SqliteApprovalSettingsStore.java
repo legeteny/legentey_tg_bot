@@ -21,7 +21,7 @@ public class SqliteApprovalSettingsStore implements ApprovalSettingsStore {
 
     private final Connection connection;
     private final Object lock = new Object();
-    /** Which feature's approval settings this instance holds — /q_del and /s_del each get their own table/row. */
+    /** Which kind of sticker this instance's settings govern — /q and /s each get their own table/row. */
     private final String table;
 
     public SqliteApprovalSettingsStore(String dbPath, String table) {

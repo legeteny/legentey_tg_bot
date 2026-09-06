@@ -26,11 +26,13 @@ public class TelegramApiClient {
     private static final Logger log = LoggerFactory.getLogger(TelegramApiClient.class);
 
     private final String baseUrl;
+    private final String fileBaseUrl;
     private final HttpClient httpClient;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public TelegramApiClient(String botToken) {
         this.baseUrl = "https://api.telegram.org/bot" + botToken;
+        this.fileBaseUrl = "https://api.telegram.org/file/bot" + botToken;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(15))
                 .build();
@@ -100,11 +102,6 @@ public class TelegramApiClient {
         call("editMessageReplyMarkup", params, Duration.ofSeconds(15));
     }
 
-    /** Sends a sticker that already exists, by its file_id. */
-    public JsonNode sendSticker(long chatId, String stickerFileId) {
-        return call("sendSticker", Map.of("chat_id", chatId, "sticker", stickerFileId), Duration.ofSeconds(20));
-    }
-
     /** Registers the bot's command menu (the suggestions shown when a user types "/"). */
     public void setMyCommands(List<Map<String, String>> commands) {
         setMyCommands(commands, null);
@@ -131,23 +128,38 @@ public class TelegramApiClient {
 
     /** Creates a brand new static sticker set owned by userId, seeded with one PNG sticker. */
     public void createNewStickerSet(long userId, String name, String title, byte[] pngBytes, List<String> emojiList) {
+        createNewStickerSet(userId, name, title, pngBytes, "sticker.png", "image/png", emojiList);
+    }
+
+    /**
+     * Same, but for a file that isn't necessarily PNG (e.g. a WEBP uploaded as-is,
+     * un-normalized, because the JDK has no built-in WEBP decoder to resize it with).
+     */
+    public void createNewStickerSet(long userId, String name, String title, byte[] fileBytes, String fileName,
+                                     String contentType, List<String> emojiList) {
         Map<String, String> fields = Map.of(
                 "user_id", String.valueOf(userId),
                 "name", name,
                 "title", title,
                 "stickers", "[" + inputStickerJson(emojiList) + "]"
         );
-        callMultipart("createNewStickerSet", fields, pngBytes, Duration.ofSeconds(30));
+        callMultipart("createNewStickerSet", fields, fileBytes, fileName, contentType, Duration.ofSeconds(30));
     }
 
     /** Adds one more PNG sticker to a set previously created by this same bot. */
     public void addStickerToSet(long userId, String name, byte[] pngBytes, List<String> emojiList) {
+        addStickerToSet(userId, name, pngBytes, "sticker.png", "image/png", emojiList);
+    }
+
+    /** Same, but for a file that isn't necessarily PNG — see the other overload's note. */
+    public void addStickerToSet(long userId, String name, byte[] fileBytes, String fileName, String contentType,
+                                 List<String> emojiList) {
         Map<String, String> fields = Map.of(
                 "user_id", String.valueOf(userId),
                 "name", name,
                 "sticker", inputStickerJson(emojiList)
         );
-        callMultipart("addStickerToSet", fields, pngBytes, Duration.ofSeconds(30));
+        callMultipart("addStickerToSet", fields, fileBytes, fileName, contentType, Duration.ofSeconds(30));
     }
 
     /** Removes one sticker from the bot-owned set it belongs to. */
@@ -174,7 +186,33 @@ public class TelegramApiClient {
                 "old_sticker", oldStickerFileId,
                 "sticker", inputStickerJson(emojiList)
         );
-        callMultipart("replaceStickerInSet", fields, pngBytes, Duration.ofSeconds(30));
+        callMultipart("replaceStickerInSet", fields, pngBytes, "sticker.png", "image/png", Duration.ofSeconds(30));
+    }
+
+    /** Metadata for an uploaded file, including "file_path" — the argument {@link #downloadFile} needs. */
+    public JsonNode getFile(String fileId) {
+        return call("getFile", Map.of("file_id", fileId), Duration.ofSeconds(15));
+    }
+
+    /** Downloads a file's raw bytes given the file_path from {@link #getFile}. */
+    public byte[] downloadFile(String filePath) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(fileBaseUrl + "/" + filePath))
+                    .timeout(Duration.ofSeconds(30))
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() != 200) {
+                throw new RuntimeException("Failed to download file " + filePath + ": HTTP " + response.statusCode());
+            }
+            return response.body();
+        } catch (IOException e) {
+            throw new RuntimeException("I/O error downloading file " + filePath, e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while downloading file " + filePath, e);
+        }
     }
 
     /** Explicitly pins a sticker to a 0-indexed position within its own set. */
@@ -257,7 +295,8 @@ public class TelegramApiClient {
     }
 
     /** Same as {@link #call} but sends a multipart/form-data body with one attached file. */
-    private JsonNode callMultipart(String method, Map<String, String> fields, byte[] fileBytes, Duration timeout) {
+    private JsonNode callMultipart(String method, Map<String, String> fields, byte[] fileBytes, String fileName,
+                                    String contentType, Duration timeout) {
         String boundary = "TgBotBoundary" + System.nanoTime();
         try {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -265,9 +304,9 @@ public class TelegramApiClient {
                 writeField(out, boundary, entry.getKey(), entry.getValue());
             }
             out.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-            out.write(("Content-Disposition: form-data; name=\"sticker_file\"; filename=\"sticker.png\"\r\n")
+            out.write(("Content-Disposition: form-data; name=\"sticker_file\"; filename=\"" + fileName + "\"\r\n")
                     .getBytes(StandardCharsets.UTF_8));
-            out.write("Content-Type: image/png\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+            out.write(("Content-Type: " + contentType + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
             out.write(fileBytes);
             out.write("\r\n".getBytes(StandardCharsets.UTF_8));
             out.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));

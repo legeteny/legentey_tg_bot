@@ -17,63 +17,92 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Handles /s_del: the same approval-vote flow as {@link QuoteDeletionVote}, but
- * for removing a plain sticker added via /s rather than a quote card. Kept as
- * its own class — with its own {@link ApprovalSettingsStore} and
- * {@link PendingDeletions} instance passed in — so the two features' approval
- * counts, timeouts, and open votes never interact.
+ * Handles /del: deleting a sticker — whether it's a /q quote card or a plain /s
+ * sticker — takes the agreement of other people in the chat, so the command
+ * opens a vote rather than removing anything on the spot.
+ *
+ * <p>Which of the two a replied-to sticker is gets sorted out here, by checking
+ * the /q pack first and then the /s pack. From that point on the two kinds keep
+ * their own approval-count/timeout settings — still changed separately via
+ * /q_set_approve_count and /s_set_approve_count — but share this one vote UI and
+ * callback.
  */
-class PlainStickerDeletionVote {
+class DeletionVote {
 
-    private static final Logger log = LoggerFactory.getLogger(PlainStickerDeletionVote.class);
+    private static final Logger log = LoggerFactory.getLogger(DeletionVote.class);
 
-    private static final String CALLBACK_DATA = "sdel|ok";
+    private static final String CALLBACK_DATA = "del|ok";
     private static final long SWEEP_INTERVAL_SECONDS = 30;
 
-    private static final String NOT_OUR_STICKER = "Этот стикер не из стикеров этого чата.";
+    private static final String NOT_OUR_STICKER = "Этот стикер не из паков этого чата.";
     private static final String DELETED = "Стикер удалён из пака.";
     private static final String DELETE_FAILED = "Не получилось удалить стикер: ";
-    private static final String EXPIRED = "Голосование устарело — вызовите /s_del заново.";
+    private static final String EXPIRED = "Голосование устарело — вызовите /del заново.";
     private static final String OWN_VOTE = "Нельзя подтвердить своё же удаление.";
     private static final String ALREADY_VOTED = "Вы уже подтвердили.";
 
     private final TelegramApiClient client;
-    private final PlainStickerService stickerService;
-    private final ApprovalSettingsStore approvalSettings;
+    private final StickerService quoteStickerService;
+    private final PlainStickerService plainStickerService;
+    private final ApprovalSettingsStore quoteApprovalSettings;
+    private final ApprovalSettingsStore stickerApprovalSettings;
     private final PendingDeletions pending;
 
-    PlainStickerDeletionVote(TelegramApiClient client, PlainStickerService stickerService,
-                             ApprovalSettingsStore approvalSettings, PendingDeletions pending) {
+    DeletionVote(TelegramApiClient client, StickerService quoteStickerService, PlainStickerService plainStickerService,
+                 ApprovalSettingsStore quoteApprovalSettings, ApprovalSettingsStore stickerApprovalSettings,
+                 PendingDeletions pending) {
         this.client = client;
-        this.stickerService = stickerService;
-        this.approvalSettings = approvalSettings;
+        this.quoteStickerService = quoteStickerService;
+        this.plainStickerService = plainStickerService;
+        this.quoteApprovalSettings = quoteApprovalSettings;
+        this.stickerApprovalSettings = stickerApprovalSettings;
         this.pending = pending;
         startSweeper();
     }
 
     /**
-     * Acts on /s_del sent as a reply to a sticker: either deletes it outright
-     * (approvals turned off) or posts the vote the deletion now waits on.
+     * Acts on /del sent as a reply to a sticker: either deletes it outright
+     * (approvals turned off for its kind) or posts the vote the deletion now
+     * waits on.
+     *
+     * <p>Everything about the outcome replies to the sticker message rather than
+     * to the command, so voters can see which sticker is on the block without
+     * hunting for it. Only the "wrong sticker" complaint goes back to the caller,
+     * since that is feedback about the command, not about a sticker.
      */
     void requestDeletion(long chatId, long requesterUserId, long commandMessageId, JsonNode stickerMessage) {
         long stickerMessageId = stickerMessage.path("message_id").asLong();
-        Optional<String> fileId = stickerService.findInChatPack(
-                chatId, stickerMessage.path("sticker").path("file_unique_id").asText(null));
-        if (fileId.isEmpty()) {
-            client.sendMessage(chatId, NOT_OUR_STICKER, null, commandMessageId);
-            return;
+        String fileUniqueId = stickerMessage.path("sticker").path("file_unique_id").asText(null);
+
+        PendingDeletions.Kind kind;
+        String fileId;
+        ApprovalSettingsStore approvalSettings;
+        Optional<String> quoteFileId = quoteStickerService.findInChatPack(chatId, fileUniqueId);
+        if (quoteFileId.isPresent()) {
+            kind = PendingDeletions.Kind.QUOTE;
+            fileId = quoteFileId.get();
+            approvalSettings = quoteApprovalSettings;
+        } else {
+            Optional<String> stickerFileId = plainStickerService.findInChatPack(chatId, fileUniqueId);
+            if (stickerFileId.isEmpty()) {
+                client.sendMessage(chatId, NOT_OUR_STICKER, null, commandMessageId);
+                return;
+            }
+            kind = PendingDeletions.Kind.STICKER;
+            fileId = stickerFileId.get();
+            approvalSettings = stickerApprovalSettings;
         }
 
         int required = approvalSettings.getApproveCount();
         if (required <= 0) {
-            deleteAndReport(chatId, fileId.get(), stickerMessageId);
+            deleteAndReport(chatId, kind, fileId, stickerMessageId);
             return;
         }
 
         Duration ttl = Duration.ofSeconds(approvalSettings.getApproveTimeoutSeconds());
         JsonNode sent = client.sendMessage(chatId, votePrompt(required), null, stickerMessageId,
                 markup(0, required, ttl));
-        pending.put(chatId, sent.path("message_id").asLong(), fileId.get(), stickerMessageId, requesterUserId,
+        pending.put(chatId, sent.path("message_id").asLong(), kind, fileId, stickerMessageId, requesterUserId,
                 required, ttl);
     }
 
@@ -113,7 +142,7 @@ class PlainStickerDeletionVote {
         }
         pending.remove(chatId, messageId);
         deleteQuietly(chatId, messageId);
-        deleteAndReport(chatId, vote.stickerFileId(), vote.stickerMessageId());
+        deleteAndReport(chatId, vote.kind(), vote.stickerFileId(), vote.stickerMessageId());
         return true;
     }
 
@@ -121,9 +150,13 @@ class PlainStickerDeletionVote {
      * The vote message is already gone by this point, so a failure here has to be
      * reported explicitly — otherwise the chat sees nothing happen at all.
      */
-    private void deleteAndReport(long chatId, String fileId, Long replyToMessageId) {
+    private void deleteAndReport(long chatId, PendingDeletions.Kind kind, String fileId, Long replyToMessageId) {
         try {
-            stickerService.deleteSticker(fileId);
+            if (kind == PendingDeletions.Kind.QUOTE) {
+                quoteStickerService.deleteQuote(fileId);
+            } else {
+                plainStickerService.deleteSticker(fileId);
+            }
         } catch (TelegramApiException e) {
             log.warn("Failed to delete a sticker in chat {}: {}", chatId, e.getMessage());
             client.sendMessage(chatId, DELETE_FAILED + e.getMessage(), null, replyToMessageId);
@@ -135,7 +168,7 @@ class PlainStickerDeletionVote {
     /** Takes down the buttons of votes nobody finished, so no stale one is left to tap. */
     private void startSweeper() {
         ScheduledExecutorService sweeper = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "sdel-sweeper");
+            Thread thread = new Thread(runnable, "del-sweeper");
             thread.setDaemon(true);
             return thread;
         });

@@ -7,7 +7,6 @@ import com.legentey.tgbot.quoteapi.QuoteApiClient;
 import com.legentey.tgbot.storage.ApprovalSettingsStore;
 import com.legentey.tgbot.storage.DeployStore;
 import com.legentey.tgbot.storage.QuoteStickerStore;
-import com.legentey.tgbot.storage.RegularStickerPackStore;
 import com.legentey.tgbot.storage.RenderSettingsStore;
 import com.legentey.tgbot.storage.StickerPackStore;
 import com.legentey.tgbot.storage.UpdateOffsetStore;
@@ -26,10 +25,8 @@ public class BotService {
     private static final List<Map<String, String>> COMMANDS = List.of(
             Map.of("command", "all", "description", "Упомянуть всех известных участников чата"),
             Map.of("command", "q", "description", "Ответом на сообщение — сделать из него стикер-цитату"),
-            Map.of("command", "q_rand", "description", "Прислать случайную цитату из этого чата"),
-            Map.of("command", "q_del", "description", "Ответом на стикер-цитату — удалить её с согласия чата"),
             Map.of("command", "s", "description", "Ответом на стикер — добавить его в стикерпак чата"),
-            Map.of("command", "s_del", "description", "Ответом на стикер из пака — удалить его с согласия чата")
+            Map.of("command", "del", "description", "Ответом на стикер (цитату или обычный) — удалить его с согласия чата")
     );
 
     /** Only ever useful to one person, so published to that person's own chat scope. */
@@ -37,14 +34,14 @@ public class BotService {
             Map.of("command", "q_rerender", "description", "Перерендерить все стикеры-цитаты"),
             Map.of("command", "q_get_width", "description", "Текущая ширина рендера"),
             Map.of("command", "q_set_width", "description", "Задать ширину рендера"),
-            Map.of("command", "q_get_approve_count", "description", "Сколько подтверждений нужно для /q_del"),
-            Map.of("command", "q_set_approve_count", "description", "Задать число подтверждений для /q_del"),
-            Map.of("command", "q_get_approve_timeout", "description", "Таймаут голосования /q_del в секундах"),
-            Map.of("command", "q_set_approve_timeout", "description", "Задать таймаут голосования /q_del в секундах"),
-            Map.of("command", "s_get_approve_count", "description", "Сколько подтверждений нужно для /s_del"),
-            Map.of("command", "s_set_approve_count", "description", "Задать число подтверждений для /s_del"),
-            Map.of("command", "s_get_approve_timeout", "description", "Таймаут голосования /s_del в секундах"),
-            Map.of("command", "s_set_approve_timeout", "description", "Задать таймаут голосования /s_del в секундах")
+            Map.of("command", "q_get_approve_count", "description", "Сколько подтверждений нужно для /del стикера-цитаты"),
+            Map.of("command", "q_set_approve_count", "description", "Задать число подтверждений для /del стикера-цитаты"),
+            Map.of("command", "q_get_approve_timeout", "description", "Таймаут голосования /del стикера-цитаты в секундах"),
+            Map.of("command", "q_set_approve_timeout", "description", "Задать таймаут голосования /del стикера-цитаты"),
+            Map.of("command", "s_get_approve_count", "description", "Сколько подтверждений нужно для /del обычного стикера"),
+            Map.of("command", "s_set_approve_count", "description", "Задать число подтверждений для /del обычного стикера"),
+            Map.of("command", "s_get_approve_timeout", "description", "Таймаут голосования /del обычного стикера в секундах"),
+            Map.of("command", "s_set_approve_timeout", "description", "Задать таймаут голосования /del обычного стикера")
     );
 
     private static final Logger log = LoggerFactory.getLogger(BotService.class);
@@ -57,24 +54,23 @@ public class BotService {
     private final DeployStore deployStore;
     private final UpdateOffsetStore updateOffsetStore;
     private final ApprovalSettingsStore approvalSettingsStore;
-    private final RegularStickerPackStore regularStickerPackStore;
+    private final StickerPackStore regularStickerPackStore;
     private final ApprovalSettingsStore stickerApprovalSettingsStore;
     private final Config config;
 
     private CommandHandler commandHandler;
     private StickerService stickerService;
     private QuoteEmojiPicker emojiPicker;
-    private QuoteDeletionVote deletionVote;
+    private DeletionVote deletionVote;
     private PlainStickerService plainStickerService;
     private StickerEmojiPicker stickerEmojiPicker;
-    private PlainStickerDeletionVote stickerDeletionVote;
 
     private volatile boolean running = true;
 
     public BotService(TelegramApiClient client, UserStore store, StickerPackStore stickerPackStore,
                       QuoteStickerStore quoteStickerStore, RenderSettingsStore renderSettingsStore,
                       DeployStore deployStore, UpdateOffsetStore updateOffsetStore,
-                      ApprovalSettingsStore approvalSettingsStore, RegularStickerPackStore regularStickerPackStore,
+                      ApprovalSettingsStore approvalSettingsStore, StickerPackStore regularStickerPackStore,
                       ApprovalSettingsStore stickerApprovalSettingsStore, Config config) {
         this.client = client;
         this.store = store;
@@ -102,15 +98,13 @@ public class BotService {
         this.stickerService = new StickerService(client, quoteApiClient, stickerPackStore, quoteStickerStore,
                 renderSettingsStore, botUsername);
         this.emojiPicker = new QuoteEmojiPicker(client, stickerService, new PendingEmojiPrompt(), config);
-        this.deletionVote = new QuoteDeletionVote(client, stickerService, approvalSettingsStore,
-                new PendingDeletions());
         this.plainStickerService = new PlainStickerService(client, regularStickerPackStore, botUsername);
         this.stickerEmojiPicker = new StickerEmojiPicker(client, plainStickerService, new PendingEmojiPrompt(),
                 config);
-        this.stickerDeletionVote = new PlainStickerDeletionVote(client, plainStickerService,
+        this.deletionVote = new DeletionVote(client, stickerService, plainStickerService, approvalSettingsStore,
                 stickerApprovalSettingsStore, new PendingDeletions());
         this.commandHandler = new CommandHandler(client, store, stickerService, emojiPicker, deletionVote,
-                approvalSettingsStore, plainStickerService, stickerEmojiPicker, stickerDeletionVote,
+                approvalSettingsStore, plainStickerService, stickerEmojiPicker,
                 stickerApprovalSettingsStore, config);
 
         try {
@@ -238,9 +232,7 @@ public class BotService {
             // Each handler recognizes its own callback_data, so the prefixes stay
             // its business; the quote picker is last because it also clears the
             // spinner on anything nobody claims.
-            if (!deletionVote.handleCallback(callbackQuery)
-                    && !stickerDeletionVote.handleCallback(callbackQuery)
-                    && !stickerEmojiPicker.handleCallback(callbackQuery)) {
+            if (!deletionVote.handleCallback(callbackQuery) && !stickerEmojiPicker.handleCallback(callbackQuery)) {
                 emojiPicker.handleCallback(callbackQuery);
             }
             return;

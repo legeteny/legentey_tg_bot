@@ -16,14 +16,12 @@ import com.legentey.tgbot.telegram.TelegramApiException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Handles /q: renders a quote-card sticker for a replied-to message via a
@@ -43,8 +41,6 @@ import java.util.concurrent.ThreadLocalRandom;
 public class StickerService {
 
     private static final Logger log = LoggerFactory.getLogger(StickerService.class);
-
-    private static final String NO_QUOTES_YET = "В этом чате ещё нет цитат — сделайте первую через /q.";
 
     private final TelegramApiClient client;
     private final QuoteApiClient quoteApiClient;
@@ -80,7 +76,7 @@ public class StickerService {
      * <p>Matching goes by file_unique_id because a file_id is not stable across
      * contexts — the one arriving on a sticker message is not necessarily the one
      * the pack knows, and only the latter can be deleted. Empty means the sticker
-     * isn't this chat's quote, which is also what keeps /q_del off other packs.
+     * isn't this chat's quote, which is also what keeps /del from touching other packs.
      */
     public Optional<String> findInChatPack(long chatId, String fileUniqueId) {
         if (fileUniqueId == null || fileUniqueId.isBlank()) {
@@ -112,47 +108,6 @@ public class StickerService {
     public void deleteQuote(String fileId) {
         client.deleteStickerFromSet(fileId);
         quoteStickerStore.deleteByFileId(fileId);
-    }
-
-    /**
-     * Sends one random sticker from this chat's own quote pack.
-     *
-     * <p>The pack is read from Telegram rather than from the quote_stickers table:
-     * the pack is what people actually see, while the table can lag behind it —
-     * stickers deleted by hand, or added before that table started being kept.
-     */
-    public void sendRandomQuote(long chatId) {
-        Optional<StickerPack> pack = packStore.findForChat(chatId);
-        if (pack.isEmpty()) {
-            client.sendMessage(chatId, NO_QUOTES_YET, null, null);
-            return;
-        }
-
-        JsonNode setStickers;
-        try {
-            setStickers = client.getStickerSet(pack.get().packName()).path("stickers");
-        } catch (TelegramApiException e) {
-            if (!e.getMessage().contains("STICKERSET_INVALID")) {
-                throw e;
-            }
-            // The pack we remembered was deleted by hand; /q will recreate it on next use.
-            log.info("Pack {} for chat {} is gone", pack.get().packName(), chatId);
-            client.sendMessage(chatId, NO_QUOTES_YET, null, null);
-            return;
-        }
-
-        List<String> fileIds = new ArrayList<>();
-        for (JsonNode sticker : setStickers) {
-            String fileId = sticker.path("file_id").asText(null);
-            if (fileId != null) {
-                fileIds.add(fileId);
-            }
-        }
-        if (fileIds.isEmpty()) {
-            client.sendMessage(chatId, NO_QUOTES_YET, null, null);
-            return;
-        }
-        client.sendSticker(chatId, fileIds.get(ThreadLocalRandom.current().nextInt(fileIds.size())));
     }
 
     /** Renders the quoted message and adds it to chatId's sticker pack. */

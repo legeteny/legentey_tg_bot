@@ -18,6 +18,7 @@
         <jackson.version>2.22.2</jackson.version>
         <sqlite.version>3.53.4.0</sqlite.version>
         <slf4j.version>2.0.17</slf4j.version>
+        <twelvemonkeys.version>3.13.1</twelvemonkeys.version>
     </properties>
 
     <dependencies>
@@ -40,6 +41,18 @@
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-simple</artifactId>
             <version>${slf4j.version}</version>
+        </dependency>
+
+        <!--
+        Registers a pure-Java (no native lib) ImageIO reader for WEBP, so
+        StickerImage.normalizeForSticker can decode/resize a WEBP picture sent
+        for /s the same way it already handles PNG/JPEG. Picked up automatically
+        via ImageIO's SPI discovery — no code references this artifact directly.
+        -->
+        <dependency>
+            <groupId>com.twelvemonkeys.imageio</groupId>
+            <artifactId>imageio-webp</artifactId>
+            <version>${twelvemonkeys.version}</version>
         </dependency>
     </dependencies>
 
@@ -69,6 +82,14 @@
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <mainClass>${main.class}</mainClass>
                                 </transformer>
+                                <!--
+                                Without this, shading silently drops/overwrites
+                                META-INF/services files that multiple jars define
+                                (ImageIO's javax.imageio.spi.* registrations among
+                                them), which would break WEBP decoding in the
+                                packaged jar despite working fine in an IDE run.
+                                -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                             </transformers>
                         </configuration>
                     </execution>
