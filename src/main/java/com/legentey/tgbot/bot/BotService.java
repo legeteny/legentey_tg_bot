@@ -26,7 +26,8 @@ public class BotService {
             Map.of("command", "all", "description", "Упомянуть всех известных участников чата"),
             Map.of("command", "q", "description", "Ответом на сообщение — сделать из него стикер-цитату"),
             Map.of("command", "s", "description", "Ответом на стикер (.png, .webp) — добавить его в стикерпак чата"),
-            Map.of("command", "del", "description", "Ответом на стикер — удалить его с согласия чата")
+            Map.of("command", "del", "description", "Ответом на стикер — удалить его с согласия чата"),
+            Map.of("command", "yers", "description", "Упомянуть всех известных участников чата")
     );
 
     /** Only ever useful to one person, so published to that person's own chat scope. */
@@ -126,7 +127,7 @@ public class BotService {
                     long updateId = update.path("update_id").asLong();
                     offset = updateId + 1;
                     // Claim the update before running it. Telegram only drops an update once
-                    // getUpdates is called with a higher offset, so without this a crash between
+                    // getUpdates is ced with a higher offset, so without this a crash between
                     // creating a sticker and the next poll makes the restarted bot create it again.
                     updateOffsetStore.saveOffset(offset);
                     try {
@@ -151,7 +152,7 @@ public class BotService {
      * Empties the menu for private chats. Every public command is group-only, so
      * offering them one-to-one just invites taps that do nothing. The admin's own
      * chat keeps its menu regardless: for a private chat Telegram resolves scopes
-     * as chat, then all_private_chats, then default, so the narrower one wins.
+     * as chat, then _private_chats, then default, so the narrower one wins.
      */
     private void clearPrivateChatCommandMenu() {
         try {
