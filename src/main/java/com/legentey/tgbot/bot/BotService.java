@@ -24,6 +24,8 @@ public class BotService {
 
     private static final List<Map<String, String>> COMMANDS = List.of(
             Map.of("command", "all", "description", "Упомянуть всех известных участников чата"),
+            Map.of("command", "add", "description", "Добавить участников в список /all: /add @username ..."),
+            Map.of("command", "remove", "description", "Убрать участников из списка /all: /remove @username ..."),
             Map.of("command", "q", "description", "Ответом на сообщение — сделать из него стикер-цитату"),
             Map.of("command", "s", "description", "Ответом на стикер (.png, .webp) — добавить его в стикерпак чата"),
             Map.of("command", "del", "description", "Ответом на стикер — удалить его с согласия чата")

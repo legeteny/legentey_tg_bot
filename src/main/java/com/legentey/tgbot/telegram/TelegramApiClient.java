@@ -126,6 +126,11 @@ public class TelegramApiClient {
         return call("getChat", Map.of("chat_id", chatId), Duration.ofSeconds(15));
     }
 
+    /** One user's membership in a chat; its "status" tells admins ("creator", "administrator") from the rest. */
+    public JsonNode getChatMember(long chatId, long userId) {
+        return call("getChatMember", Map.of("chat_id", chatId, "user_id", userId), Duration.ofSeconds(15));
+    }
+
     /** Creates a brand new static sticker set owned by userId, seeded with one PNG sticker. */
     public void createNewStickerSet(long userId, String name, String title, byte[] pngBytes, List<String> emojiList) {
         createNewStickerSet(userId, name, title, pngBytes, "sticker.png", "image/png", emojiList);

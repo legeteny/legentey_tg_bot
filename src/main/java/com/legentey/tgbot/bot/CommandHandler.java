@@ -7,8 +7,11 @@ import com.legentey.tgbot.storage.ChatUser;
 import com.legentey.tgbot.storage.UserStore;
 import com.legentey.tgbot.telegram.TelegramApiClient;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 public class CommandHandler {
 
@@ -53,6 +56,8 @@ public class CommandHandler {
 
         switch (command) {
             case "all" -> handleAll(chatId, isGroup);
+            case "add" -> handleAdd(message, chatId, isGroup);
+            case "remove" -> handleRemove(message, chatId, isGroup);
             case "q" -> handleQ(message, chatId, isGroup, args);
             case "q_get_approve_count" -> handleQGetApproveCount(message, chatId);
             case "q_set_approve_count" -> handleQSetApproveCount(message, chatId, args);
@@ -89,6 +94,114 @@ public class CommandHandler {
                 sleepQuietly(1200);
             }
         }
+    }
+
+    /** Chat admins only: puts people the bot can't see on its own onto this chat's /all list. */
+    private void handleAdd(JsonNode message, long chatId, boolean isGroup) {
+        if (!isGroup) {
+            return;
+        }
+        long messageId = message.path("message_id").asLong();
+        if (!isChatAdmin(message, chatId)) {
+            client.sendMessage(chatId, "Добавлять участников в список /all могут только админы чата.", null, messageId);
+            return;
+        }
+        List<ChatUser> mentioned = mentionedUsers(message);
+        if (mentioned.isEmpty()) {
+            client.sendMessage(chatId, "Укажите участников через @, например: /add @username1 @username2",
+                    null, messageId);
+            return;
+        }
+        List<String> added = new ArrayList<>();
+        List<String> alreadyThere = new ArrayList<>();
+        for (ChatUser user : mentioned) {
+            boolean isNew;
+            if (user.userId() != null) {
+                isNew = !store.hasUser(chatId, user.userId());
+                store.upsertUser(chatId, user.userId(), user.username(), user.firstName(), user.lastName());
+            } else {
+                isNew = store.addUsername(chatId, user.username());
+            }
+            (isNew ? added : alreadyThere).add(label(user));
+        }
+        client.sendMessage(chatId, summary("Добавлены", added, "Уже были в списке", alreadyThere), null, messageId);
+    }
+
+    /**
+     * Chat admins only: drops people from this chat's /all list — for someone who left without
+     * the bot noticing. Anyone removed who later writes in the chat is picked up again as usual.
+     */
+    private void handleRemove(JsonNode message, long chatId, boolean isGroup) {
+        if (!isGroup) {
+            return;
+        }
+        long messageId = message.path("message_id").asLong();
+        if (!isChatAdmin(message, chatId)) {
+            client.sendMessage(chatId, "Удалять участников из списка /all могут только админы чата.", null, messageId);
+            return;
+        }
+        List<ChatUser> mentioned = mentionedUsers(message);
+        if (mentioned.isEmpty()) {
+            client.sendMessage(chatId, "Укажите участников через @, например: /remove @username1 @username2",
+                    null, messageId);
+            return;
+        }
+        List<String> removed = new ArrayList<>();
+        List<String> notFound = new ArrayList<>();
+        for (ChatUser user : mentioned) {
+            boolean wasThere = user.userId() != null
+                    ? store.removeUser(chatId, user.userId())
+                    : store.removeUsername(chatId, user.username());
+            (wasThere ? removed : notFound).add(label(user));
+        }
+        client.sendMessage(chatId, summary("Удалены", removed, "Не найдены в списке", notFound), null, messageId);
+    }
+
+    /**
+     * Everyone named in a command's text, deduplicated, in order. "@username" arrives as a "mention"
+     * entity; someone without a username, picked from the client's @-suggestions, arrives as a
+     * "text_mention" carrying the whole user — id included.
+     */
+    private static List<ChatUser> mentionedUsers(JsonNode message) {
+        long chatId = message.path("chat").path("id").asLong();
+        String text = message.path("text").asText();
+        Map<String, ChatUser> byKey = new LinkedHashMap<>();
+        for (JsonNode entity : message.path("entities")) {
+            switch (entity.path("type").asText("")) {
+                case "mention" -> {
+                    // Offsets count UTF-16 code units, which is exactly how a Java String indexes.
+                    int offset = entity.path("offset").asInt();
+                    String username = text.substring(offset + 1, offset + entity.path("length").asInt());
+                    byKey.putIfAbsent("@" + username.toLowerCase(Locale.ROOT),
+                            new ChatUser(chatId, null, username, null, null));
+                }
+                case "text_mention" -> {
+                    JsonNode user = entity.path("user");
+                    long userId = user.path("id").asLong();
+                    byKey.putIfAbsent("#" + userId, new ChatUser(chatId, userId, textOrNull(user, "username"),
+                            textOrNull(user, "first_name"), textOrNull(user, "last_name")));
+                }
+                default -> {
+                }
+            }
+        }
+        return new ArrayList<>(byKey.values());
+    }
+
+    private static String label(ChatUser user) {
+        return user.username() != null ? "@" + user.username() : user.displayName();
+    }
+
+    /** Plain text, one line per non-empty group, e.g. "Добавлены: @a, @b". */
+    private static String summary(String firstTitle, List<String> first, String secondTitle, List<String> second) {
+        List<String> lines = new ArrayList<>();
+        if (!first.isEmpty()) {
+            lines.add(firstTitle + ": " + String.join(", ", first));
+        }
+        if (!second.isEmpty()) {
+            lines.add(secondTitle + ": " + String.join(", ", second));
+        }
+        return String.join("\n", lines);
     }
 
     private void handleQ(JsonNode message, long chatId, boolean isGroup, String emoji) {
@@ -329,6 +442,22 @@ public class CommandHandler {
         Long adminId = config.adminChatId();
         long fromId = message.path("from").path("id").asLong();
         return adminId != null && fromId == adminId;
+    }
+
+    /** An admin of this particular chat — unlike {@link #isAdmin}, which means the bot's one owner. */
+    private boolean isChatAdmin(JsonNode message, long chatId) {
+        // An admin posting anonymously ("as the group") arrives with the group itself as sender_chat.
+        if (message.path("sender_chat").path("id").asLong(0) == chatId) {
+            return true;
+        }
+        long fromId = message.path("from").path("id").asLong();
+        String status = client.getChatMember(chatId, fromId).path("status").asText("");
+        return "creator".equals(status) || "administrator".equals(status);
+    }
+
+    private static String textOrNull(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        return value.isMissingNode() || value.isNull() ? null : value.asText();
     }
 
     private static Integer parsePositiveInt(String text) {

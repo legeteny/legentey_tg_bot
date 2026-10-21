@@ -1,8 +1,9 @@
 package com.legentey.tgbot.storage;
 
+/** userId is null for someone added by hand via /add @username whom the bot hasn't seen write yet. */
 public record ChatUser(
         long chatId,
-        long userId,
+        Long userId,
         String username,
         String firstName,
         String lastName

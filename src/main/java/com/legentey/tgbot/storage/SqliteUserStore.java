@@ -40,10 +40,21 @@ public class SqliteUserStore implements UserStore {
     @Override
     public void upsertUser(long chatId, long userId, String username, String firstName, String lastName) {
         synchronized (lock) {
+            if (username != null) {
+                // Someone added by hand as @username has now shown up for real — keep one row, not two.
+                String merge = "DELETE FROM chat_users WHERE chat_id = ? AND user_id IS NULL AND lower(username) = lower(?)";
+                try (PreparedStatement ps = connection.prepareStatement(merge)) {
+                    ps.setLong(1, chatId);
+                    ps.setString(2, username);
+                    ps.executeUpdate();
+                } catch (SQLException e) {
+                    log.error("Failed to merge manual entry @{} in chat {}", username, chatId, e);
+                }
+            }
             String sql = """
                     INSERT INTO chat_users (chat_id, user_id, username, first_name, last_name, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(chat_id, user_id) DO UPDATE SET
+                    ON CONFLICT(chat_id, user_id) WHERE user_id IS NOT NULL DO UPDATE SET
                         username = excluded.username,
                         first_name = excluded.first_name,
                         last_name = excluded.last_name,
@@ -64,15 +75,78 @@ public class SqliteUserStore implements UserStore {
     }
 
     @Override
-    public void removeUser(long chatId, long userId) {
+    public boolean hasUser(long chatId, long userId) {
+        synchronized (lock) {
+            String sql = "SELECT 1 FROM chat_users WHERE chat_id = ? AND user_id = ?";
+            try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                ps.setLong(1, chatId);
+                ps.setLong(2, userId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    return rs.next();
+                }
+            } catch (SQLException e) {
+                log.error("Failed to look up user {} in chat {}", userId, chatId, e);
+                return false;
+            }
+        }
+    }
+
+    @Override
+    public boolean addUsername(long chatId, String username) {
+        synchronized (lock) {
+            String exists = "SELECT 1 FROM chat_users WHERE chat_id = ? AND lower(username) = lower(?)";
+            String insert = """
+                    INSERT INTO chat_users (chat_id, user_id, username, first_name, last_name, updated_at)
+                    VALUES (?, NULL, ?, NULL, NULL, ?)
+                    """;
+            try (PreparedStatement check = connection.prepareStatement(exists)) {
+                check.setLong(1, chatId);
+                check.setString(2, username);
+                try (ResultSet rs = check.executeQuery()) {
+                    if (rs.next()) {
+                        return false;
+                    }
+                }
+                try (PreparedStatement ps = connection.prepareStatement(insert)) {
+                    ps.setLong(1, chatId);
+                    ps.setString(2, username);
+                    ps.setLong(3, System.currentTimeMillis());
+                    ps.executeUpdate();
+                }
+                return true;
+            } catch (SQLException e) {
+                log.error("Failed to add @{} to chat {}", username, chatId, e);
+                return false;
+            }
+        }
+    }
+
+    @Override
+    public boolean removeUser(long chatId, long userId) {
         synchronized (lock) {
             String sql = "DELETE FROM chat_users WHERE chat_id = ? AND user_id = ?";
             try (PreparedStatement ps = connection.prepareStatement(sql)) {
                 ps.setLong(1, chatId);
                 ps.setLong(2, userId);
-                ps.executeUpdate();
+                return ps.executeUpdate() > 0;
             } catch (SQLException e) {
                 log.error("Failed to remove user {} from chat {}", userId, chatId, e);
+                return false;
+            }
+        }
+    }
+
+    @Override
+    public boolean removeUsername(long chatId, String username) {
+        synchronized (lock) {
+            String sql = "DELETE FROM chat_users WHERE chat_id = ? AND lower(username) = lower(?)";
+            try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                ps.setLong(1, chatId);
+                ps.setString(2, username);
+                return ps.executeUpdate() > 0;
+            } catch (SQLException e) {
+                log.error("Failed to remove @{} from chat {}", username, chatId, e);
+                return false;
             }
         }
     }
@@ -86,9 +160,10 @@ public class SqliteUserStore implements UserStore {
                 ps.setLong(1, chatId);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
+                        long userId = rs.getLong("user_id");
                         result.add(new ChatUser(
                                 chatId,
-                                rs.getLong("user_id"),
+                                rs.wasNull() ? null : userId,
                                 rs.getString("username"),
                                 rs.getString("first_name"),
                                 rs.getString("last_name")
