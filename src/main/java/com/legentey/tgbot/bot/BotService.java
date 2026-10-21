@@ -7,6 +7,7 @@ import com.legentey.tgbot.quoteapi.QuoteApiClient;
 import com.legentey.tgbot.storage.ApprovalSettingsStore;
 import com.legentey.tgbot.storage.DeployStore;
 import com.legentey.tgbot.storage.QuoteStickerStore;
+import com.legentey.tgbot.storage.RateLimitSettingsStore;
 import com.legentey.tgbot.storage.RenderSettingsStore;
 import com.legentey.tgbot.storage.StickerPackStore;
 import com.legentey.tgbot.storage.UpdateOffsetStore;
@@ -43,7 +44,9 @@ public class BotService {
             Map.of("command", "s_get_approve_count", "description", "Сколько подтверждений нужно для /del обычного стикера"),
             Map.of("command", "s_set_approve_count", "description", "Задать число подтверждений для /del обычного стикера"),
             Map.of("command", "s_get_approve_timeout", "description", "Таймаут голосования /del обычного стикера в секундах"),
-            Map.of("command", "s_set_approve_timeout", "description", "Задать таймаут голосования /del обычного стикера")
+            Map.of("command", "s_set_approve_timeout", "description", "Задать таймаут голосования /del обычного стикера"),
+            Map.of("command", "rate_limit_get", "description", "Как часто один участник может вызывать /all, в секундах"),
+            Map.of("command", "rate_limit_set", "description", "Задать интервал /all в секундах (0 — без ограничения)")
     );
 
     private static final Logger log = LoggerFactory.getLogger(BotService.class);
@@ -58,6 +61,7 @@ public class BotService {
     private final ApprovalSettingsStore approvalSettingsStore;
     private final StickerPackStore regularStickerPackStore;
     private final ApprovalSettingsStore stickerApprovalSettingsStore;
+    private final RateLimitSettingsStore rateLimitSettingsStore;
     private final Config config;
 
     private CommandHandler commandHandler;
@@ -73,7 +77,8 @@ public class BotService {
                       QuoteStickerStore quoteStickerStore, RenderSettingsStore renderSettingsStore,
                       DeployStore deployStore, UpdateOffsetStore updateOffsetStore,
                       ApprovalSettingsStore approvalSettingsStore, StickerPackStore regularStickerPackStore,
-                      ApprovalSettingsStore stickerApprovalSettingsStore, Config config) {
+                      ApprovalSettingsStore stickerApprovalSettingsStore,
+                      RateLimitSettingsStore rateLimitSettingsStore, Config config) {
         this.client = client;
         this.store = store;
         this.stickerPackStore = stickerPackStore;
@@ -84,6 +89,7 @@ public class BotService {
         this.approvalSettingsStore = approvalSettingsStore;
         this.regularStickerPackStore = regularStickerPackStore;
         this.stickerApprovalSettingsStore = stickerApprovalSettingsStore;
+        this.rateLimitSettingsStore = rateLimitSettingsStore;
         this.config = config;
     }
 
@@ -107,7 +113,7 @@ public class BotService {
                 stickerApprovalSettingsStore, new PendingDeletions());
         this.commandHandler = new CommandHandler(client, store, stickerService, emojiPicker, deletionVote,
                 approvalSettingsStore, plainStickerService, stickerEmojiPicker,
-                stickerApprovalSettingsStore, config);
+                stickerApprovalSettingsStore, rateLimitSettingsStore, config);
 
         try {
             client.setMyCommands(COMMANDS);

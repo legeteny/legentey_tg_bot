@@ -4,10 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.legentey.tgbot.Config;
 import com.legentey.tgbot.storage.ApprovalSettingsStore;
 import com.legentey.tgbot.storage.ChatUser;
+import com.legentey.tgbot.storage.RateLimitSettingsStore;
 import com.legentey.tgbot.storage.UserStore;
 import com.legentey.tgbot.telegram.TelegramApiClient;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -24,13 +26,18 @@ public class CommandHandler {
     private final PlainStickerService plainStickerService;
     private final StickerEmojiPicker stickerEmojiPicker;
     private final ApprovalSettingsStore stickerApprovalSettingsStore;
+    private final RateLimitSettingsStore rateLimitSettingsStore;
     private final Config config;
+
+    /** "chatId:userId" → when that user's last /all in that chat went through. */
+    private final Map<String, Long> lastAllCallMillis = new HashMap<>();
 
     public CommandHandler(TelegramApiClient client, UserStore store, StickerService stickerService,
                           QuoteEmojiPicker emojiPicker, DeletionVote deletionVote,
                           ApprovalSettingsStore approvalSettingsStore, PlainStickerService plainStickerService,
                           StickerEmojiPicker stickerEmojiPicker,
-                          ApprovalSettingsStore stickerApprovalSettingsStore, Config config) {
+                          ApprovalSettingsStore stickerApprovalSettingsStore,
+                          RateLimitSettingsStore rateLimitSettingsStore, Config config) {
         this.client = client;
         this.store = store;
         this.stickerService = stickerService;
@@ -40,6 +47,7 @@ public class CommandHandler {
         this.plainStickerService = plainStickerService;
         this.stickerEmojiPicker = stickerEmojiPicker;
         this.stickerApprovalSettingsStore = stickerApprovalSettingsStore;
+        this.rateLimitSettingsStore = rateLimitSettingsStore;
         this.config = config;
     }
 
@@ -55,7 +63,7 @@ public class CommandHandler {
                 .toLowerCase(Locale.ROOT);
 
         switch (command) {
-            case "all" -> handleAll(chatId, isGroup);
+            case "all" -> handleAll(message, chatId, isGroup);
             case "add" -> handleAdd(message, chatId, isGroup);
             case "remove" -> handleRemove(message, chatId, isGroup);
             case "q" -> handleQ(message, chatId, isGroup, args);
@@ -72,15 +80,31 @@ public class CommandHandler {
             case "s_set_approve_count" -> handleSSetApproveCount(message, chatId, args);
             case "s_get_approve_timeout" -> handleSGetApproveTimeout(message, chatId);
             case "s_set_approve_timeout" -> handleSSetApproveTimeout(message, chatId, args);
+            case "rate_limit_get" -> handleRateLimitGet(message, chatId);
+            case "rate_limit_set" -> handleRateLimitSet(message, chatId, args);
             default -> {
             }
         }
     }
 
-    private void handleAll(long chatId, boolean isGroup) {
+    private void handleAll(JsonNode message, long chatId, boolean isGroup) {
         if (!isGroup) {
             return;
         }
+
+        // Per user per chat. Kept in memory only: a restart resetting everyone's cooldown is harmless.
+        String cooldownKey = chatId + ":" + message.path("from").path("id").asLong();
+        int cooldownSeconds = rateLimitSettingsStore.getAllCooldownSeconds();
+        long cooldownMillis = cooldownSeconds * 1000L;
+        long now = System.currentTimeMillis();
+        Long lastCall = lastAllCallMillis.get(cooldownKey);
+        if (lastCall != null && now - lastCall < cooldownMillis) {
+            long secondsLeft = (cooldownMillis - (now - lastCall) + 999) / 1000;
+            client.sendMessage(chatId, "/all можно вызывать не чаще раза в " + cooldownSeconds
+                    + " сек. Попробуйте через " + secondsLeft + " сек.", null, message.path("message_id").asLong());
+            return;
+        }
+        lastAllCallMillis.put(cooldownKey, now);
 
         List<ChatUser> users = store.listChatUsers(chatId);
         if (users.isEmpty()) {
@@ -436,6 +460,36 @@ public class CommandHandler {
         }
         stickerApprovalSettingsStore.setApproveTimeoutSeconds(seconds);
         client.sendMessage(chatId, "Таймаут голосования: " + seconds + " сек.", null, null);
+    }
+
+    /** Admin-only, hidden: reports how often one user may call /all in one chat. */
+    private void handleRateLimitGet(JsonNode message, long chatId) {
+        if (!isAdmin(message)) {
+            return;
+        }
+        int seconds = rateLimitSettingsStore.getAllCooldownSeconds();
+        client.sendMessage(chatId, seconds == 0
+                        ? "Ограничение /all выключено."
+                        : "/all — не чаще раза в " + seconds + " сек. на участника.",
+                null, null);
+    }
+
+    /** Admin-only, hidden: changes how often one user may call /all in one chat. Applies at once, to everyone. */
+    private void handleRateLimitSet(JsonNode message, long chatId, String args) {
+        if (!isAdmin(message)) {
+            return;
+        }
+        Integer seconds = parseNonNegativeInt(args);
+        if (seconds == null) {
+            client.sendMessage(chatId, "Укажите неотрицательное число секунд, например: /rate_limit_set 60",
+                    null, null);
+            return;
+        }
+        rateLimitSettingsStore.setAllCooldownSeconds(seconds);
+        client.sendMessage(chatId, seconds == 0
+                        ? "Ограничение /all выключено."
+                        : "/all — не чаще раза в " + seconds + " сек. на участника.",
+                null, null);
     }
 
     private boolean isAdmin(JsonNode message) {

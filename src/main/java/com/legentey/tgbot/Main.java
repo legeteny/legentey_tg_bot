@@ -5,6 +5,7 @@ import com.legentey.tgbot.storage.DatabaseMigrator;
 import com.legentey.tgbot.storage.SqliteApprovalSettingsStore;
 import com.legentey.tgbot.storage.SqliteDeployStore;
 import com.legentey.tgbot.storage.SqliteQuoteStickerStore;
+import com.legentey.tgbot.storage.SqliteRateLimitSettingsStore;
 import com.legentey.tgbot.storage.SqliteRegularStickerPackStore;
 import com.legentey.tgbot.storage.SqliteRenderSettingsStore;
 import com.legentey.tgbot.storage.SqliteStickerPackStore;
@@ -34,10 +35,11 @@ public class Main {
         SqliteRegularStickerPackStore regularStickerPackStore = new SqliteRegularStickerPackStore(config.dbPath());
         SqliteApprovalSettingsStore stickerApprovalSettingsStore =
                 new SqliteApprovalSettingsStore(config.dbPath(), "sticker_approval_settings");
+        SqliteRateLimitSettingsStore rateLimitSettingsStore = new SqliteRateLimitSettingsStore(config.dbPath());
         TelegramApiClient client = new TelegramApiClient(config.botToken());
         BotService botService = new BotService(client, store, stickerPackStore, quoteStickerStore,
                 renderSettingsStore, deployStore, updateOffsetStore, approvalSettingsStore, regularStickerPackStore,
-                stickerApprovalSettingsStore, config);
+                stickerApprovalSettingsStore, rateLimitSettingsStore, config);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("Shutting down...");
@@ -51,6 +53,7 @@ public class Main {
             approvalSettingsStore.close();
             regularStickerPackStore.close();
             stickerApprovalSettingsStore.close();
+            rateLimitSettingsStore.close();
         }, "shutdown-hook"));
 
         log.info("Starting Telegram tag-all bot");
